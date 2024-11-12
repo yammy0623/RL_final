@@ -87,7 +87,7 @@ class DiffusionEnv(gym.Env):
             ### RL step
             interval = self.ddim_scheduler.timesteps[0] - self.ddim_scheduler.timesteps[1]
             ddim_t = self.ddim_scheduler.timesteps[self.current_step_num]
-            t = round(self.ddim_scheduler.timesteps[self.current_step_num] - interval * action)
+            t = torch.round(self.ddim_scheduler.timesteps[self.current_step_num] - interval * action)
             # Truncate the time step
             t = torch.tensor(max(0, min(t, 999)))
             self.time_step_sequence.append(t.item())
@@ -135,6 +135,8 @@ class DiffusionEnv(gym.Env):
         }
         # Save the image if done
         if done:
+            if not os.path.exists('img'):
+                os.makedirs('img')
             images = (self.current_image / 2 + 0.5).clamp(0, 1)
             images = images.cpu().permute(0, 2, 3, 1).numpy()[0]
             images = Image.fromarray((images * 255).round().astype("uint8"))
