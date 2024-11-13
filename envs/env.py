@@ -40,7 +40,7 @@ class DiffusionEnv(gym.Env):
         # Count the number of steps
         self.current_step_num = 0 
         # Define the action and observation space
-        self.action_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(1,)) 
+        self.action_space = gym.spaces.Box(low=-5.0, high=5.0, shape=(1,)) 
         self.observation_space = Dict({
             "image": Box(low=0, high=255, shape=(3, self.sample_size, self.sample_size), dtype=np.uint8),
             "value": Box(low=np.array([0]), high=np.array([999]), dtype=np.uint16)
@@ -87,7 +87,7 @@ class DiffusionEnv(gym.Env):
             ### RL step
             interval = self.ddim_scheduler.timesteps[0] - self.ddim_scheduler.timesteps[1]
             ddim_t = self.ddim_scheduler.timesteps[self.current_step_num]
-            t = torch.round(self.ddim_scheduler.timesteps[self.current_step_num] - interval * action)
+            t = int(torch.round(self.ddim_scheduler.timesteps[self.current_step_num] - interval * action))
             # Truncate the time step
             t = torch.tensor(max(0, min(t, 999)))
             self.time_step_sequence.append(t.item())
