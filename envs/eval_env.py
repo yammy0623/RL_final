@@ -45,8 +45,7 @@ class EvalDiffusionEnv(gym.Env):
         # Define the action and observation space
         self.action_space = gym.spaces.Box(low=-action_range, high=action_range, shape=(1,)) 
         self.observation_space = Dict({
-            # "image": Box(low=0, high=255, shape=(3, self.sample_size, self.sample_size), dtype=np.uint8),
-            "image": Box(low=-1.0, high=1.0, shape=(3, self.sample_size, self.sample_size), dtype=np.float32),
+            "image": Box(low=0, high=255, shape=(3, self.sample_size, self.sample_size), dtype=np.uint8),
             "value": Box(low=np.array([0]), high=np.array([999]), dtype=np.uint16)
         })
         # Initialize the random seed
