@@ -13,3 +13,11 @@ To train RL, run:
 ```python
 python train.py
 ```
+
+To evaluate FID, run:
+```bash
+bash eval_fid.sh
+```
+PS. Please modify `--save_path` in eval_fid.sh, this means the path of the RL model produced by `train.py`.
+
+(Note all these codes may not be 100% accurate)
