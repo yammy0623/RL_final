@@ -323,7 +323,7 @@ def save_fid_stats(paths, batch_size, device, dims, num_workers=1, num_samples=N
 
 def main():
     args = parser.parse_args()
-
+    print("Calculating FID from paths: ", args.path)
     if args.device is None:
         device = torch.device('cuda' if (torch.cuda.is_available()) else 'cpu')
     else:
