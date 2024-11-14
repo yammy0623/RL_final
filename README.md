@@ -1,3 +1,5 @@
+## Quickstart
+
 Install required packages first:
 ```bash
 pip install -r requirements.txt
@@ -21,3 +23,13 @@ bash eval_fid.sh
 PS. Please modify `--save_path` in eval_fid.sh, this means the path of the RL model produced by `train.py`.
 
 (Note all these codes may not be 100% accurate)
+
+## Experimental Results
+
+### CIFAR 10 
+| Step | DDIM | RL |
+| --- | --- | --- |
+| 5 |  |
+| 10 | 20.76 | 18.13
+| 20 | |
+| 100|  5.71 | - 
