@@ -27,7 +27,7 @@ PS. Please modify `--save_path` in eval_fid.sh, this means the path of the RL mo
 ## Experimental Results
 
 ### CIFAR 10 
-| | 5 | 10 | 20 | 100|
+| | T=5 | T=10 | T=20 | T=100|
 | --- | --- | --- | --- | --- |
 | DDIM |  |20.76| |5.71|
 | RL   |  |18.13| |-|
