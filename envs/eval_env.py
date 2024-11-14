@@ -121,19 +121,19 @@ class EvalDiffusionEnv(gym.Env):
             "value": t
         }
         # Save the image if done
-        # if done and self.img_save_path is not None:
+        if done and self.img_save_path is not None:
             # print(self.current_image)
-        #     if not os.path.exists(self.img_save_path):
-        #         os.makedirs(self.img_save_path)
-        #     # print(info['time_step_sequence'])
-        #     # print("timesteps", info['time_step_sequence'])
-        #     images = (self.current_image / 2 + 0.5).clamp(0, 1)
-        #     images = images.cpu().permute(0, 2, 3, 1).numpy()[0]
-        #     images = Image.fromarray((images * 255).round().astype("uint8"))
-        #     filename = os.path.join(self.img_save_path, f"img_{self.sample_number_count}.png")
-        #     images.save(filename)
-        #     print(f"Image saved at {filename}")
-        #     self.sample_number_count += 1
+            if not os.path.exists(self.img_save_path):
+                os.makedirs(self.img_save_path)
+            # print(info['time_step_sequence'])
+            # print("timesteps", info['time_step_sequence'])
+            images = (self.current_image / 2 + 0.5).clamp(0, 1)
+            images = images.cpu().permute(0, 2, 3, 1).numpy()[0]
+            images = Image.fromarray((images * 255).round().astype("uint8"))
+            filename = os.path.join(self.img_save_path, f"img_{self.sample_number_count}.png")
+            images.save(filename)
+            # print(f"Image saved at {filename}")
+            self.sample_number_count += 1
             # images = (self.ddim_current_image / 2 + 0.5).clamp(0, 1)
             # images = images.cpu().permute(0, 2, 3, 1).numpy()[0]
             # images = Image.fromarray((images * 255).round().astype("uint8"))
