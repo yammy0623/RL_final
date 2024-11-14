@@ -99,7 +99,7 @@ class DDIMPipeline(DiffusionPipeline):
 
         # set step values
         self.scheduler.set_timesteps(num_inference_steps)
-
+        t_idx = 0
         for t in self.progress_bar(self.scheduler.timesteps):
             # 1. predict noise model_output
             model_output = self.unet(image, t).sample
@@ -107,9 +107,11 @@ class DDIMPipeline(DiffusionPipeline):
             # 2. predict previous mean of image x_t-1 and add variance depending on eta
             # eta corresponds to η in paper and should be between [0, 1]
             # do x_t -> x_t-1
+            prev_timestep = self.scheduler.timesteps[t_idx+1] if t_idx+1 < len(self.scheduler.timesteps) else -1
             image = self.scheduler.step(
-                model_output, t, image, eta=eta, use_clipped_model_output=use_clipped_model_output, generator=generator
+                model_output, t, image, eta=eta, use_clipped_model_output=use_clipped_model_output, generator=generator, prev_timestep=prev_timestep
             ).prev_sample
+            t_idx += 1
 
         image = (image / 2 + 0.5).clamp(0, 1)
         image = image.cpu().permute(0, 2, 3, 1).numpy()

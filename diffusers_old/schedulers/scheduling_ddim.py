@@ -278,6 +278,7 @@ class DDIMScheduler(SchedulerMixin, ConfigMixin):
         generator=None,
         variance_noise: Optional[torch.FloatTensor] = None,
         return_dict: bool = True,
+		prev_timestep: int = None,
     ) -> Union[DDIMSchedulerOutput, Tuple]:
         """
         Predict the sample at the previous timestep by reversing the SDE. Core function to propagate the diffusion
@@ -322,7 +323,8 @@ class DDIMScheduler(SchedulerMixin, ConfigMixin):
         # - pred_prev_sample -> "x_t-1"
 
         # 1. get previous step value (=t-1)
-        prev_timestep = timestep - self.config.num_train_timesteps // self.num_inference_steps
+        # prev_timestep = timestep - self.config.num_train_timesteps // self.num_inference_steps
+        prev_timestep = timestep - self.config.num_train_timesteps // self.num_inference_steps if prev_timestep is None else prev_timestep
 
         # 2. compute alphas, betas
         alpha_prod_t = self.alphas_cumprod[timestep]
