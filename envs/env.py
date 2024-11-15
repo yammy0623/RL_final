@@ -3,25 +3,29 @@ from gymnasium import spaces
 from gymnasium.utils import seeding
 import numpy as np
 import torch
-from diffusers_old import DDIMPipeline, DDIMScheduler, UNet2DModel
 import os
 from PIL import Image
 from skimage.metrics import structural_similarity
 from gymnasium.spaces import Box, Dict
 import os
+import random
 
 class DiffusionEnv(gym.Env):
     def __init__(self, model_name, target_steps=10, max_steps=100):
         super(DiffusionEnv, self).__init__()
         self.target_steps = target_steps
+        # Threshold for the sparse reward
+        self.final_threshold = 0.9
         # Load diffusion model
         if os.path.isdir(model_name):
+            from diffusers_old import DDIMPipeline, DDIMScheduler, UNet2DModel
             print("Loading model from {}".format(model_name))
             subfolder = 'unet' if os.path.isdir(os.path.join(model_name, 'unet')) else None
             self.model = UNet2DModel.from_pretrained(model_name, subfolder=subfolder).eval()
             scheduler_subfolder = 'scheduler'
         # standard model
         else:  
+            from diffusers import DDIMPipeline, DDIMScheduler, UNet2DModel
             print("Loading pretrained model from {}".format(model_name))
             self.model = UNet2DModel.from_pretrained(model_name).to("cuda")
             scheduler_subfolder = None
@@ -32,6 +36,7 @@ class DiffusionEnv(gym.Env):
         self.scheduler = DDIMScheduler.from_pretrained(model_name, subfolder=scheduler_subfolder)
         self.scheduler.set_timesteps(max_steps)
         self.time_step_sequence = []
+        self.action_sequence = []
         # DDIM steps
         self.ddim_scheduler = DDIMScheduler.from_pretrained(model_name, subfolder=scheduler_subfolder)
         self.ddim_scheduler.set_timesteps(target_steps)
@@ -45,41 +50,57 @@ class DiffusionEnv(gym.Env):
             "image": Box(low=0, high=255, shape=(3, self.sample_size, self.sample_size), dtype=np.uint8),
             "value": Box(low=np.array([0]), high=np.array([999]), dtype=np.uint16)
         })
+        # Initialize the random seed
+        self.seed(232)
         # Initialize with a random noisy image
-        self.current_image = torch.randn((1, 3, self.sample_size, self.sample_size), device="cuda")
+        self.current_image = torch.randn((1, 3, self.sample_size, self.sample_size), device="cuda", generator=self.generator)
         self.ddim_current_image = self.current_image.clone()
         # Ground truth image
         input = self.current_image.clone().to("cuda")
         for t in self.scheduler.timesteps:
             with torch.no_grad():
                 noisy_residual = self.model(input, t).sample
-                prev_noisy_sample = self.scheduler.step(noisy_residual, t, input).prev_sample
+                prev_noisy_sample = self.scheduler.step(noisy_residual, t, input, generator=self.generator).prev_sample
                 input = prev_noisy_sample
         self.GT_image = input.cpu()
 
     def seed(self, seed=None):
-        self.np_random, seed = seeding.np_random(seed)
-        return [seed]
+        # self.np_random, seed = seeding.np_random(seed)
+        self.generator = torch.Generator(device='cuda').manual_seed(seed)
+        np.random.seed(seed)
+        random.seed(seed)
+        torch.manual_seed(seed)
+        torch.random.manual_seed(seed)
+        # print(f"Seed: {seed}")
+        # return [seed]
     
     def reset(self, seed=None, options=None):
+        if seed is not None:
+            self.seed(seed)
         self.current_step_num = 0
         self.time_step_sequence = []
-        self.current_image = torch.randn((1, 3, self.sample_size, self.sample_size), device="cuda")
+        self.action_sequence = []
+        self.current_image = torch.randn((1, 3, self.sample_size, self.sample_size), device="cuda", generator=self.generator)
         self.ddim_current_image = self.current_image.clone()
         # Ground truth image
         input = self.current_image.clone().to("cuda")
         for t in self.scheduler.timesteps:
             with torch.no_grad():
                 noisy_residual = self.model(input, t).sample
-                prev_noisy_sample = self.scheduler.step(noisy_residual, t, input).prev_sample
+                prev_noisy_sample = self.scheduler.step(noisy_residual, t, input, generator=self.generator).prev_sample
                 input = prev_noisy_sample
         self.GT_image = input.cpu()
         observation = {
             "image": self.current_image.cpu().numpy(),  
             "value": np.array([999])
         }
+        # images = (self.GT_image / 2 + 0.5).clamp(0, 1)
+        # images = images.cpu().permute(0, 2, 3, 1).numpy()[0]
+        # images = Image.fromarray((images * 255).round().astype("uint8"))
+        # filename = os.path.join('img', f"GT_{self.current_step_num}.png")
+        # images.save(filename)
         return observation, {}
-
+    
     def step(self, action):
         truncate = True if self.current_step_num >= self.max_steps else False
         # Denoise current image at time t
@@ -91,6 +112,7 @@ class DiffusionEnv(gym.Env):
             # Truncate the time step
             t = torch.tensor(max(0, min(t, 999)))
             self.time_step_sequence.append(t.item())
+            self.action_sequence.append(action.item())
             if self.current_step_num == 0:
                 # Start from a random noisy image
                 input = self.current_image.to("cuda")
@@ -100,9 +122,9 @@ class DiffusionEnv(gym.Env):
             # calculate the noise of x_t
             noisy_residual = self.model(input, t).sample
             # Get the x_t-1 image and save the prediction to use in the next step
-            self.prev_pred_original_image = self.scheduler.step(noisy_residual, t, input).pred_original_sample
-            self.prev_pred_epsilon = self.scheduler.step(noisy_residual, t, input).pred_epsilon
-            prev_noisy_sample = self.ddim_scheduler.step(noisy_residual, t, input).prev_sample
+            self.prev_pred_original_image = self.scheduler.step(noisy_residual, t, input, generator=self.generator).pred_original_sample
+            self.prev_pred_epsilon = self.scheduler.step(noisy_residual, t, input, generator=self.generator).pred_epsilon
+            prev_noisy_sample = self.ddim_scheduler.step(noisy_residual, t, input, generator=self.generator).prev_sample
             self.current_image = prev_noisy_sample.cpu()
 
             ### DDIM step
@@ -111,7 +133,7 @@ class DiffusionEnv(gym.Env):
             # calculate the noise of x_t
             noisy_residual = self.model(input, ddim_t).sample
             # Get the x_t-1 image
-            prev_noisy_sample = self.ddim_scheduler.step(noisy_residual, ddim_t, input).prev_sample
+            prev_noisy_sample = self.ddim_scheduler.step(noisy_residual, ddim_t, input, generator=self.generator).prev_sample
             self.ddim_current_image = prev_noisy_sample.cpu()
 
         # Finish the episode if denoising is done
@@ -126,7 +148,8 @@ class DiffusionEnv(gym.Env):
             'reward': reward,
             'ssim': ssim,
             'ddim_ssim': ddim_ssim,
-            'time_step_sequence': self.time_step_sequence
+            'time_step_sequence': self.time_step_sequence,
+            'action_sequence': self.action_sequence
         }
         # print('info:', info)
         observation = {
@@ -134,24 +157,24 @@ class DiffusionEnv(gym.Env):
             "value": t
         }
         # Save the image if done
-        if done:
-            if not os.path.exists('img'):
-                os.makedirs('img')
-            images = (self.current_image / 2 + 0.5).clamp(0, 1)
-            images = images.cpu().permute(0, 2, 3, 1).numpy()[0]
-            images = Image.fromarray((images * 255).round().astype("uint8"))
-            filename = os.path.join('img', f"RL_{self.current_step_num}.png")
-            images.save(filename)
-            images = (self.ddim_current_image / 2 + 0.5).clamp(0, 1)
-            images = images.cpu().permute(0, 2, 3, 1).numpy()[0]
-            images = Image.fromarray((images * 255).round().astype("uint8"))
-            filename = os.path.join('img', f"ddim_{self.current_step_num}.png")
-            images.save(filename)
-            images = (self.GT_image / 2 + 0.5).clamp(0, 1)
-            images = images.cpu().permute(0, 2, 3, 1).numpy()[0]
-            images = Image.fromarray((images * 255).round().astype("uint8"))
-            filename = os.path.join('img', f"GT_{self.current_step_num}.png")
-            images.save(filename)
+        # if done:
+        #     if not os.path.exists('img'):
+        #         os.makedirs('img')
+        #     images = (self.current_image / 2 + 0.5).clamp(0, 1)
+        #     images = images.cpu().permute(0, 2, 3, 1).numpy()[0]
+        #     images = Image.fromarray((images * 255).round().astype("uint8"))
+        #     filename = os.path.join('img', f"RL_{self.current_step_num}.png")
+        #     images.save(filename)
+        #     images = (self.ddim_current_image / 2 + 0.5).clamp(0, 1)
+        #     images = images.cpu().permute(0, 2, 3, 1).numpy()[0]
+        #     images = Image.fromarray((images * 255).round().astype("uint8"))
+        #     filename = os.path.join('img', f"ddim_{self.current_step_num}.png")
+        #     images.save(filename)
+        #     images = (self.GT_image / 2 + 0.5).clamp(0, 1)
+        #     images = images.cpu().permute(0, 2, 3, 1).numpy()[0]
+        #     images = Image.fromarray((images * 255).round().astype("uint8"))
+        #     filename = os.path.join('img', f"GT_{self.current_step_num}.png")
+        #     images.save(filename)
        
         return observation, reward, done, truncate, info
 
@@ -165,7 +188,7 @@ class DiffusionEnv(gym.Env):
         if ssim > ddim_ssim:
             reward += 1/self.target_steps
         # Sparse reward (SSIM)
-        if done and ssim > 0.9:
+        if done and ssim > self.final_threshold:
             reward += 1
 
         return reward, ssim, ddim_ssim
