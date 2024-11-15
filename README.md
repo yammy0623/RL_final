@@ -38,5 +38,5 @@ The setting of thresholds impacts a lot. For example, experiment of T=5 with thr
 ### LSUN-Church
 | | T=5 | T=10 | T=20 | T=100|
 | --- | --- | --- | --- | --- |
-| DDIM |49.84|19.10 |12.04| |
+| DDIM |49.84|19.10 |12.04|10.55|
 | RL   |  | | |-|
