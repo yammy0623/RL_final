@@ -26,17 +26,21 @@ PS. Please modify `--save_path` in eval_fid.sh, this means the path of the RL mo
 
 ## Experimental Results
 
-Thresholds of sparse reward are set 0.75, 0.89, 0.93 for T of 5, 10, 20.
-The setting of thresholds impacts a lot. For example, experiment of T=5 with threshold of 0.8 only gets FID of 66.33.
-
 ### CIFAR 10 
 | | T=5 | T=10 | T=20 | T=100|
 | --- | --- | --- | --- | --- |
 | DDIM |68.28|20.76|11.46|5.71|
 | RL   |34.67|18.13|11.02|-|
 
+Thresholds of sparse reward are set 0.75, 0.89, 0.93 for T of 5, 10, 20.
+The setting of thresholds impacts a lot. For example, experiment of T=5 with threshold of 0.8 only gets FID of 66.33.
+
 ### LSUN-Church
 | | T=5 | T=10 | T=20 | T=100|
 | --- | --- | --- | --- | --- |
 | DDIM |49.84|19.10 |12.04|10.55|
-| RL   |  | | |-|
+| RL   |52.97|21.24| |-|
+
+Thresholds of sparse reward are set 0.55, 0.76, 0.89 for T of 5, 10, 20.
+The results of RL are worse than DDIM, which are likely caused by the discrepancy between FID and SSIM.
+Moreover, prior work has not implemented on high-resolution (256x256) images, which are more difficult tasks.
