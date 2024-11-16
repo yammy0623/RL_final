@@ -39,7 +39,7 @@ The setting of thresholds impacts a lot. For example, experiment of T=5 with thr
 | | T=5 | T=10 | T=20 | T=100|
 | --- | --- | --- | --- | --- |
 | DDIM |49.84|19.10 |12.04|10.55|
-| RL   |52.97|21.24| |-|
+| RL   |52.97|21.24|12.60|-|
 
 Thresholds of sparse reward are set 0.55, 0.76, 0.89 for T of 5, 10, 20.
 The results of RL are worse than DDIM, which are likely caused by the discrepancy between FID and SSIM.
