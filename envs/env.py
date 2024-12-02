@@ -10,6 +10,280 @@ from gymnasium.spaces import Box, Dict
 import os
 import random
 
+# DDRM
+from ddrm.datasets import get_dataset, data_transform, inverse_data_transform
+from ddrm.functions.denoising import initialize_generalized_steps, denoise_single_step
+
+
+class DiffusionEnv(gym.Env):
+    def __init__(self, diff_model, target_steps=10, max_steps=100):
+        super(DiffusionEnv, self).__init__()
+        self.diff_model = diff_model
+        self.target_steps = target_steps
+        # Threshold for the sparse reward
+        self.final_threshold = 0.9
+        # Load diffusion model
+        # self.diff_model.sample()
+        val_loader, sigma_0, config, deg, H_funcs, model, idx_so_far, cls_fn = self.diff_model.sample()
+        self.val_loader = val_loader
+        self.sigma_0 = sigma_0
+        self.config = config
+        self.deg = deg
+        self.H_funcs = H_funcs
+        self.model = model
+        self.idx_so_far = idx_so_far
+        self.cls_fn = cls_fn
+        self.model.to("cuda")
+        self.valdata_len = self.diff_model.valdata_len
+        self.current_image_idx = 0
+
+        self.GT_image, self.classes = self.val_loader[self.current_image_idx]
+
+        # 最一開始的是純noise
+        self.current_noise_image, y_0 = self.diff_model.sample_init(
+            self.GT_image,
+            self.sigma_0,
+            self.config,
+            self.deg,
+            self.H_funcs,
+            self.model,
+            self.idx_so_far,
+            self.cls_fn,
+            self.classes,
+        )
+        self.y_0 = y_0
+
+        # ddim sequence
+        skip = self.num_timesteps // self.args.timesteps
+        seq = range(0, self.num_timesteps, skip)
+        seq_next = [-1] + list(seq[:-1])
+
+        self.ddim_seq = seq
+        self.ddim_seq_next = seq_next
+
+        self.time_step_sequence = []
+        self.action_sequence = []
+        # # DDIM steps
+        # Maximum number of steps  (Baseline)
+        self.max_steps = max_steps
+        # Count the number of steps
+        self.current_step_num = 0
+        # Define the action and observation space
+        self.action_space = gym.spaces.Box(low=-5.0, high=5.0, shape=(1,))
+        self.observation_space = Dict(
+            {
+                "image": Box(
+                    low=0,
+                    high=255,
+                    shape=(3, self.sample_size, self.sample_size),
+                    dtype=np.uint8,
+                ),
+                "value": Box(low=np.array([0]), high=np.array([999]), dtype=np.uint16),
+            }
+        )
+        # Initialize the random seed
+        self.seed(232)
+
+        self.episode_init = True
+        self.state = None
+        # # Initialize with a random noisy image
+        # self.current_image = torch.randn((1, 3, self.sample_size, self.sample_size), device="cuda", generator=self.generator)
+        # # 複製一個完全一樣的張量
+        self.ddim_current_image = self.current_noise_image.clone()
+        # # Ground truth image
+
+        # # 這邊的GT是DDPM(跑1000次的結果，用其作為比較)
+        # input = self.current_image.clone().to("cuda")
+        # for t in self.scheduler.timesteps:
+        #     with torch.no_grad():
+        #         noisy_residual = self.model(input, t).sample
+        #         prev_noisy_sample = self.scheduler.step(noisy_residual, t, input, generator=self.generator).prev_sample
+        #         input = prev_noisy_sample
+        # self.GT_image = input.cpu()
+
+    def seed(self, seed=None):
+        # self.np_random, seed = seeding.np_random(seed)
+        self.generator = torch.Generator(device="cuda").manual_seed(seed)
+        np.random.seed(seed)
+        random.seed(seed)
+        torch.manual_seed(seed)
+        torch.random.manual_seed(seed)
+        # print(f"Seed: {seed}")
+        # return [seed]
+
+    def reset(self, seed=None, options=None):
+        self.episode_init = True
+        if seed is not None:
+            self.seed(seed)
+
+        if self.current_image_idx <= self.valdata_len:
+            self.current_image_idx += 1
+
+            self.current_step_num = 0
+            self.time_step_sequence = []
+            self.action_sequence = []
+
+            # Change to next image
+            self._load_next_image()
+
+            observation = {
+                "image": self.current_image.cpu().numpy(),
+                "value": np.array([999]),
+            }
+        return observation, {}
+
+    def _load_next_image(self):
+        self.GT_image, self.classes = self.val_loader[self.current_image_idx]
+        self.current_noise_image, self.y_0 = self.diff_model.sample_init(
+            self.GT_image,
+            self.sigma_0,
+            self.config,
+            self.deg,
+            self.H_funcs,
+            self.model,
+            self.idx_so_far,
+            self.cls_fn,
+            self.classes,
+        )
+
+    def step(self, action):
+        # 每個action 是下一個選的timestep
+        truncate = self.current_step_num >= self.max_steps
+
+        # RL Method
+        # Denoise current image at time t
+        # Q: how to design the last T
+        if self.episode_init:
+            # Randomly pick last T in a certain range
+            last_T = torch.randint(low=800, high=1000, size=(1,)).item()
+            self.state = initialize_generalized_steps(
+                self.current_noise_image,
+                last_T,
+                self.diff_model.betas,
+                self.H_funcs,
+                self.y_0,
+                self.sigma_0,
+            )
+            self.episode_init = False
+            self.t = last_T
+
+            # t of ddim is set
+            self.ddim_state = initialize_generalized_steps(
+                self.ddim_current_image,
+                self.ddim_seq[-1],
+                self.diff_model.betas,
+                self.H_funcs,
+                self.y_0,
+                self.sigma_0,
+            )
+            interval = self.ddim_seq[0] - self.ddim_seq[1]
+        
+        # add current t and current action
+        self._update_sequences(self.t, action)
+
+        # TODO: Need to redesign
+        # generate next t based on current action
+        next_t = self._calculate_time_step(action, interval)
+
+
+        self.current_noise_image = self._perform_denoising_single_step(
+            self.state, self.t, next_t
+        )
+
+        # DDRM
+        ddim_t = self.ddim_seq[self.current_step_num]
+        self.ddim_current_image = self._perform_denoising_single_step(
+            self.ddim_state,
+            t=ddim_t,
+            next_t=self.ddim_seq[self.current_step_num],
+        )
+        # Check if the episode is done
+        done = self.current_step_num == self.target_steps - 1
+        self.current_step_num += 1
+
+        # Calculate reward
+        # TODO: Need to redesign
+        reward, ssim, ddim_ssim = self.calculate_reward(done) 
+        info = self._create_info_dict(ddim_t, self.t, reward, ssim, ddim_ssim)
+        observation = {"image": self.current_noise_image, "value": self.t}
+
+        # Updatee RL t
+        self.t = next_t
+
+        return observation, reward, done, truncate, info
+
+    def _calculate_time_step(self, action, interval):
+        t = int(torch.round(self.ddim_seq[self.current_step_num] - interval * action))
+        return torch.tensor(max(0, min(t, 999)))
+
+    def _update_sequences(self, t, action):
+        self.time_step_sequence.append(t.item())
+        self.action_sequence.append(action.item())
+
+    def _perform_denoising_single_step(self, state, t, next_t):
+        with torch.no_grad():
+            xs, x0_preds = denoise_single_step(
+                state,
+                self.model,
+                t,
+                next_t,
+                self.diff_model.betas,
+                self.H_funcs,
+                self.y_0,
+                self.sigma_0,
+                etaB=self.args.etaB,
+                etaA=self.args.eta,
+                etaC=self.args.eta,
+                cls_fn=self.cls_fn,
+                classes=self.classes,
+            )
+            x = [inverse_data_transform(self.config, y) for y in xs]
+            return x
+
+    def _create_info_dict(self, ddim_t, t, reward, ssim, ddim_ssim):
+        return {
+            "ddim_t": ddim_t,
+            "t": t,
+            "reward": reward,
+            "ssim": ssim,
+            "ddim_ssim": ddim_ssim,
+            "time_step_sequence": self.time_step_sequence,
+            "action_sequence": self.action_sequence,
+        }
+
+    def calculate_reward(self, done):
+        reward = 0
+        # similarity = torch.nn.functional.mse_loss(self.current_image, self.GT_image)
+        # ddim_similarity = torch.nn.functional.mse_loss(self.ddim_current_image, self.GT_image)
+        ssim = structural_similarity(
+            ((self.current_noise_image[0] + 1.0) / 2.0).cpu().numpy(),
+            ((self.GT_image[0] + 1.0) / 2.0).cpu().numpy(),
+            multichannel=True,
+            channel_axis=0,
+            data_range=1,
+        )
+        ddim_ssim = structural_similarity(
+            ((self.ddim_current_image[0] + 1.0) / 2.0).cpu().numpy(),
+            ((self.GT_image[0] + 1.0) / 2.0).cpu().numpy(),
+            multichannel=True,
+            channel_axis=0,
+            data_range=1,
+        )
+        # Intermediate reward
+        if ssim > ddim_ssim:
+            reward += 1 / self.target_steps
+        # Sparse reward (SSIM)
+        if done and ssim > self.final_threshold:
+            reward += 1
+
+        return reward, ssim, ddim_ssim
+
+    def render(self, mode="human", close=False):
+        # This could visualize the current state if necessary
+        pass
+
+
+"""
 class DiffusionEnv(gym.Env):
     def __init__(self, model_name, target_steps=10, max_steps=100):
         super(DiffusionEnv, self).__init__()
@@ -54,8 +328,11 @@ class DiffusionEnv(gym.Env):
         self.seed(232)
         # Initialize with a random noisy image
         self.current_image = torch.randn((1, 3, self.sample_size, self.sample_size), device="cuda", generator=self.generator)
+        # 複製一個完全一樣的張量
         self.ddim_current_image = self.current_image.clone()
         # Ground truth image
+    
+        # 這邊的GT是DDPM(跑1000次的結果，用其作為比較)
         input = self.current_image.clone().to("cuda")
         for t in self.scheduler.timesteps:
             with torch.no_grad():
@@ -196,3 +473,4 @@ class DiffusionEnv(gym.Env):
     def render(self, mode='human', close=False):
         # This could visualize the current state if necessary
         pass
+"""
