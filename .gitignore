@@ -1,9 +1,8 @@
-exp/
 **/__pycache__/
-__pycache__/
 .DS_Store
 model/
 SAC_v1/
 wandb/
 run/
-
+exp/
+img/
