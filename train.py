@@ -1,11 +1,11 @@
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
-from stable_baselines3.common.monitor import Monitor
+# from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import (
     DummyVecEnv,
-    VecVideoRecorder,
-    SubprocVecEnv,
+    # VecVideoRecorder,
+    # SubprocVecEnv,
 )
-from stable_baselines3 import A2C, DQN, PPO, SAC
+from stable_baselines3 import SAC
 from gymnasium import spaces
 import torch as th
 import torch.nn as nn
@@ -44,7 +44,9 @@ register(
 def make_env(my_config):
     def _init():
         config = {
-            "diff_model": my_config["Diff_model"],
+            "runner": my_config["runner"],
+            "model": my_config["diff_model"],
+            "cls": my_config["diff_cls"],
             "target_steps": my_config["target_steps"],
             "max_steps": my_config["max_steps"],
         }
@@ -102,8 +104,8 @@ def eval(env, model, eval_episode_num):
 
         # Interact with env using old Gym API
         while not done:
-            action, _state = model.predict(obs, deterministic=True)
-            obs, reward, done, info = env.step(action)
+            action, _ = model.predict(obs, deterministic=True)
+            obs, _, done, info = env.step(action)
 
         avg_reward += info[0]["reward"]
         avg_ssim += info[0]["ssim"]
@@ -171,7 +173,7 @@ def parse_args_and_config():
     )
     parser.add_argument("--seed", type=int, default=1234, help="Random seed")
     parser.add_argument(
-        "--exp", type=str, default="exp", help="Path for saving running related data."
+        "--exp", type=str, default="ddrm\exp", help="Path for saving running related data."
     )
     parser.add_argument(
         "--doc",
@@ -224,7 +226,7 @@ def parse_args_and_config():
         config = yaml.safe_load(f)
     new_config = dict2namespace(config)
 
-    tb_path = os.path.join(args.exp, "tensorboard", args.doc)
+    # tb_path = os.path.join(args.exp, "tensorboard", args.doc)
 
     level = getattr(logging, args.verbose.upper(), None)
     if not isinstance(level, int):
@@ -289,7 +291,6 @@ def dict2namespace(config):
 
 
 def main():
-    
 
     policy_kwargs = dict(
         features_extractor_class=CustomCNN,
@@ -300,10 +301,7 @@ def main():
     # TODO: change to read yaml
     args, config = parse_args_and_config()
     runner = Diffusion(args, config)
-    # model = runner.create_model()
-    
-
-
+    diff_model, cls = runner.get_model()
     my_config = {
         "run_id": "SAC_v1",
         "algorithm": MD_SAC,
@@ -314,14 +312,16 @@ def main():
         "eval_episode_num": 10,
         "learning_rate": 1e-4,
         "policy_kwargs": policy_kwargs,
-        "Diff_model": runner,
+        "runner": runner,
+        "diff_model": diff_model,
+        "diff_cls": cls,
         # "DM_model": "model/ddpm_ema_cifar10",
         "target_steps": 10,
         "max_steps": 100,
         "num_train_envs": 1,
     }
     if LOG:
-        run = wandb.init(
+        _ = wandb.init(
             project="final",
             config=my_config,
             sync_tensorboard=True,  # auto-upload sb3's tensorboard metrics

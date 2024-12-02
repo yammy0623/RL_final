@@ -206,8 +206,7 @@ class Diffusion(object):
                 model = torch.nn.DataParallel(model)
 
         self.model = model
-        return cls_fn
-
+        return model, cls_fn
 
     # 移到全域，迴圈才可以被包起來(解決無法被pickle的問題)
     def seed_worker(self, worker_id):
@@ -216,7 +215,7 @@ class Diffusion(object):
         random.seed(worker_seed)
 
     def sample(self, cls_fn=None):
-        cls_fn = self.get_model()
+        # cls_fn = self.get_model()
         # inference
         args, config = self.args, self.config
 
@@ -254,7 +253,7 @@ class Diffusion(object):
         # H_funcs = self.create_Hfuncs(config, deg)
         if deg[:2] == "cs":
             compress_by = int(deg[2:])
-            from functions.svd_replacement import WalshHadamardCS
+            from ddrm.functions.svd_replacement import WalshHadamardCS
 
             H_funcs = WalshHadamardCS(
                 config.data.channels,
@@ -290,14 +289,14 @@ class Diffusion(object):
                 config.data.channels, config.data.image_size, missing, self.device
             )
         elif deg == "deno":
-            from functions.svd_replacement import Denoising
+            from ddrm.functions.svd_replacement import Denoising
 
             H_funcs = Denoising(
                 config.data.channels, self.config.data.image_size, self.device
             )
         elif deg[:10] == "sr_bicubic":
             factor = int(deg[10:])
-            from functions.svd_replacement import SRConv
+            from ddrm.functions.svd_replacement import SRConv
 
             def bicubic_kernel(x, a=-0.5):
                 if abs(x) <= 1:
@@ -323,7 +322,7 @@ class Diffusion(object):
                 stride=factor,
             )
         elif deg == "deblur_uni":
-            from functions.svd_replacement import Deblurring
+            from ddrm.functions.svd_replacement import Deblurring
 
             H_funcs = Deblurring(
                 torch.Tensor([1 / 9] * 9).to(self.device),
@@ -332,7 +331,7 @@ class Diffusion(object):
                 self.device,
             )
         elif deg == "deblur_gauss":
-            from functions.svd_replacement import Deblurring
+            from ddrm.functions.svd_replacement import Deblurring
 
             sigma = 10
             pdf = lambda x: torch.exp(torch.Tensor([-0.5 * (x / sigma) ** 2]))
@@ -346,7 +345,7 @@ class Diffusion(object):
                 self.device,
             )
         elif deg == "deblur_aniso":
-            from functions.svd_replacement import Deblurring2D
+            from ddrm.functions.svd_replacement import Deblurring2D
 
             sigma = 20
             pdf = lambda x: torch.exp(torch.Tensor([-0.5 * (x / sigma) ** 2]))
@@ -387,7 +386,7 @@ class Diffusion(object):
             )
         elif deg[:2] == "sr":
             blur_by = int(deg[2:])
-            from functions.svd_replacement import SuperResolution
+            from ddrm.functions.svd_replacement import SuperResolution
 
             H_funcs = SuperResolution(
                 config.data.channels, config.data.image_size, blur_by, self.device
@@ -409,10 +408,9 @@ class Diffusion(object):
         idx_so_far = args.subset_start
         avg_psnr = 0.0
         # pdb.set_trace()
-        pbar = tqdm.tqdm(val_loader)
-        
-        return val_loader, sigma_0, config, deg, H_funcs, model, idx_so_far, cls_fn
+        # pbar = tqdm.tqdm(val_loader)
 
+        return val_loader, sigma_0, config, deg, H_funcs, model, idx_so_far, cls_fn
 
     # 如果沒有cls，就不會有class
     def sample_init(
@@ -481,7 +479,6 @@ class Diffusion(object):
             device=self.device,
         )
         return x, y_0
-
 
     def evaluation(self, x, x_orig, y_0, idx_init, pbar, idx_so_far):
         config = self.config

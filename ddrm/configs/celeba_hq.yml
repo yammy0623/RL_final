@@ -1,14 +1,14 @@
 data:
     dataset: "CelebA_HQ"
     category: ""
-    image_size: 256
+    image_size: 256 # 256
     channels: 3
     logit_transform: false
     uniform_dequantization: false
     gaussian_dequantization: false
     random_flip: true
     rescaled: true
-    num_workers: 1 # 32
+    num_workers: 16 # 32
     out_of_dist: True
 
 model:

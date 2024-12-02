@@ -13,18 +13,16 @@ import random
 # DDRM
 from ddrm.datasets import get_dataset, data_transform, inverse_data_transform
 from ddrm.functions.denoising import initialize_generalized_steps, denoise_single_step
-
+import pdb
 
 class DiffusionEnv(gym.Env):
-    def __init__(self, diff_model, target_steps=10, max_steps=100):
+    def __init__(self, runner, model, cls, target_steps=10, max_steps=100):
         super(DiffusionEnv, self).__init__()
-        self.diff_model = diff_model
+        self.runner = runner
         self.target_steps = target_steps
-        # Threshold for the sparse reward
         self.final_threshold = 0.9
-        # Load diffusion model
-        # self.diff_model.sample()
-        val_loader, sigma_0, config, deg, H_funcs, model, idx_so_far, cls_fn = self.diff_model.sample()
+        val_loader, sigma_0, config, deg, H_funcs, model, idx_so_far, cls_fn = self.runner.sample(cls)
+        # pdb.set_trace()
         self.val_loader = val_loader
         self.sigma_0 = sigma_0
         self.config = config
@@ -34,13 +32,18 @@ class DiffusionEnv(gym.Env):
         self.idx_so_far = idx_so_far
         self.cls_fn = cls_fn
         self.model.to("cuda")
-        self.valdata_len = self.diff_model.valdata_len
+        self.valdata_len = self.runner.val_datalen
         self.current_image_idx = 0
+        self.sample_size = config.data.image_size
 
-        self.GT_image, self.classes = self.val_loader[self.current_image_idx]
+        # Dataloader needs iterator!!!
+        self.data_iter = iter(self.val_loader)
+        self.GT_image, self.classes = next(self.data_iter)
+        # print(np.size(self.GT_image))
+        # pdb.set_trace()
 
-        # 最一開始的是純noise
-        self.current_noise_image, y_0 = self.diff_model.sample_init(
+        # noise
+        self.current_noise_image, y_0 = self.runner.sample_init(
             self.GT_image,
             self.sigma_0,
             self.config,
@@ -54,8 +57,8 @@ class DiffusionEnv(gym.Env):
         self.y_0 = y_0
 
         # ddim sequence
-        skip = self.num_timesteps // self.args.timesteps
-        seq = range(0, self.num_timesteps, skip)
+        skip = self.runner.num_timesteps // self.runner.args.timesteps
+        seq = range(0, self.runner.num_timesteps, skip)
         seq_next = [-1] + list(seq[:-1])
 
         self.ddim_seq = seq
@@ -63,11 +66,10 @@ class DiffusionEnv(gym.Env):
 
         self.time_step_sequence = []
         self.action_sequence = []
-        # # DDIM steps
-        # Maximum number of steps  (Baseline)
         self.max_steps = max_steps
-        # Count the number of steps
         self.current_step_num = 0
+
+
         # Define the action and observation space
         self.action_space = gym.spaces.Box(low=-5.0, high=5.0, shape=(1,))
         self.observation_space = Dict(
@@ -83,23 +85,10 @@ class DiffusionEnv(gym.Env):
         )
         # Initialize the random seed
         self.seed(232)
-
         self.episode_init = True
         self.state = None
-        # # Initialize with a random noisy image
-        # self.current_image = torch.randn((1, 3, self.sample_size, self.sample_size), device="cuda", generator=self.generator)
-        # # 複製一個完全一樣的張量
+        # pdb.set_trace()
         self.ddim_current_image = self.current_noise_image.clone()
-        # # Ground truth image
-
-        # # 這邊的GT是DDPM(跑1000次的結果，用其作為比較)
-        # input = self.current_image.clone().to("cuda")
-        # for t in self.scheduler.timesteps:
-        #     with torch.no_grad():
-        #         noisy_residual = self.model(input, t).sample
-        #         prev_noisy_sample = self.scheduler.step(noisy_residual, t, input, generator=self.generator).prev_sample
-        #         input = prev_noisy_sample
-        # self.GT_image = input.cpu()
 
     def seed(self, seed=None):
         # self.np_random, seed = seeding.np_random(seed)
@@ -127,14 +116,14 @@ class DiffusionEnv(gym.Env):
             self._load_next_image()
 
             observation = {
-                "image": self.current_image.cpu().numpy(),
+                "image": self.current_noise_image.cpu().numpy(),
                 "value": np.array([999]),
             }
         return observation, {}
 
     def _load_next_image(self):
-        self.GT_image, self.classes = self.val_loader[self.current_image_idx]
-        self.current_noise_image, self.y_0 = self.diff_model.sample_init(
+        self.GT_image, self.classes = next(self.data_iter)
+        self.current_noise_image, self.y_0 = self.runner.sample_init(
             self.GT_image,
             self.sigma_0,
             self.config,
@@ -145,11 +134,12 @@ class DiffusionEnv(gym.Env):
             self.cls_fn,
             self.classes,
         )
+        
+        print(np.size(self.current_noise_image))
 
     def step(self, action):
-        # 每個action 是下一個選的timestep
         truncate = self.current_step_num >= self.max_steps
-
+        pdb.set_trace()
         # RL Method
         # Denoise current image at time t
         # Q: how to design the last T
@@ -171,7 +161,7 @@ class DiffusionEnv(gym.Env):
             self.ddim_state = initialize_generalized_steps(
                 self.ddim_current_image,
                 self.ddim_seq[-1],
-                self.diff_model.betas,
+                self.runner.betas,
                 self.H_funcs,
                 self.y_0,
                 self.sigma_0,
@@ -238,7 +228,7 @@ class DiffusionEnv(gym.Env):
                 classes=self.classes,
             )
             x = [inverse_data_transform(self.config, y) for y in xs]
-            return x
+        return x
 
     def _create_info_dict(self, ddim_t, t, reward, ssim, ddim_ssim):
         return {
