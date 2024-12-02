@@ -263,7 +263,7 @@ class Diffusion(object):
                 self.device,
             )
         elif deg[:3] == "inp":
-            from functions.svd_replacement import Inpainting
+            from ddrm.functions.svd_replacement import Inpainting
 
             if deg == "inp_lolcat":
                 loaded = np.load("inp_masks/lolcat_extra.npy")

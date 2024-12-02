@@ -2,9 +2,9 @@
 **DATA and Checkpoint**
 Download [here](https://drive.google.com/drive/folders/1cSCTaBtnL7OIKXT4SVME88Vtk4uDd_u4)!
 
-The models and datasets are placed in the `exp/` folder as follows:
+The models and datasets are placed in the `ddrm/exp/` folder as follows:
 ```bash
-<exp> # a folder named by the argument `--exp` given to main.py
+<ddrm/exp> # a folder named by the argument `--exp` given to main.py
 ├── datasets # all dataset files
 │   ├── celeba # all CelebA files
 │   ├── imagenet # all ImageNet files
