@@ -1,4 +1,4 @@
-# FOR DDRM
+# For DDRM
 **DATA and Checkpoint**
 Download [here](https://drive.google.com/drive/folders/1cSCTaBtnL7OIKXT4SVME88Vtk4uDd_u4)!
 

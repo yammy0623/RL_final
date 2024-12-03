@@ -5,7 +5,7 @@ from stable_baselines3.common.vec_env import (
     # VecVideoRecorder,
     # SubprocVecEnv,
 )
-from stable_baselines3 import SAC
+from stable_baselines3 import SAC, A2C
 from gymnasium import spaces
 import torch as th
 import torch.nn as nn
@@ -303,8 +303,8 @@ def main():
     runner = Diffusion(args, config)
     diff_model, cls = runner.get_model()
     my_config = {
-        "run_id": "SAC_v1",
-        "algorithm": MD_SAC,
+        "run_id": "A2C_v1",
+        "algorithm": A2C,
         "policy_network": "MultiInputPolicy",
         "save_path": "model/sample_model",
         "epoch_num": 500,
