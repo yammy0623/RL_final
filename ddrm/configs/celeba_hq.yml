@@ -32,5 +32,5 @@ diffusion:
     num_diffusion_timesteps: 1000
 
 sampling:
-    batch_size: 2 # 4
+    batch_size: 1 # 4
     last_only: True

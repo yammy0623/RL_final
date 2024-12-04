@@ -13,7 +13,7 @@ import random
 # DDRM
 from ddrm.datasets import get_dataset, data_transform, inverse_data_transform
 from ddrm.functions.denoising import initialize_generalized_steps, denoise_single_step
-import pdb
+import pdb 
 
 class DiffusionEnv(gym.Env):
     def __init__(self, runner, model, cls, target_steps=10, max_steps=100):
@@ -35,6 +35,7 @@ class DiffusionEnv(gym.Env):
         self.valdata_len = self.runner.val_datalen
         self.current_image_idx = 0
         self.sample_size = config.data.image_size
+        self.batch_size = config.sampling.batch_size
 
         # Dataloader needs iterator!!!
         self.data_iter = iter(self.val_loader)
@@ -77,6 +78,7 @@ class DiffusionEnv(gym.Env):
                 "image": Box(
                     low=0,
                     high=255,
+                    # shape=(self.batch_size, 3*self.sample_size*self.sample_size),
                     shape=(3, self.sample_size, self.sample_size),
                     dtype=np.uint8,
                 ),
@@ -105,7 +107,9 @@ class DiffusionEnv(gym.Env):
         if seed is not None:
             self.seed(seed)
 
-        if self.current_image_idx <= self.valdata_len:
+        if self.current_image_idx < self.valdata_len-1:
+            # print("Current image index: ", self.current_image_idx)
+            # print("Val data length: ", self.valdata_len)
             self.current_image_idx += 1
 
             self.current_step_num = 0
@@ -114,11 +118,17 @@ class DiffusionEnv(gym.Env):
 
             # Change to next image
             self._load_next_image()
+        else:
+            # print("All images are used. Resetting to the first image.")
+            self.current_image_idx = 0
+            self.data_iter._reset(self.val_loader)
 
-            observation = {
-                "image": self.current_noise_image.cpu().numpy(),
-                "value": np.array([999]),
-            }
+        observation = {
+            # "lower_dim_image": (self.current_noise_image).reshape(self.batch_size, 1).cpu().numpy(),
+            "image": torch.tensor(self.current_noise_image).squeeze(0).cpu().numpy(),
+            "value": np.array([999]),
+        }
+
         return observation, {}
 
     def _load_next_image(self):
@@ -135,44 +145,47 @@ class DiffusionEnv(gym.Env):
             self.classes,
         )
         
-        print(np.size(self.current_noise_image))
 
     def step(self, action):
         truncate = self.current_step_num >= self.max_steps
-        pdb.set_trace()
+        # pdb.set_trace()
         # RL Method
         # Denoise current image at time t
         # Q: how to design the last T
+        interval = self.ddim_seq[0] - self.ddim_seq[1]
         if self.episode_init:
             # Randomly pick last T in a certain range
             last_T = torch.randint(low=800, high=1000, size=(1,)).item()
             self.state = initialize_generalized_steps(
-                self.current_noise_image,
+                self.current_noise_image.to("cuda"),
                 last_T,
-                self.diff_model.betas,
+                self.runner.betas,
                 self.H_funcs,
                 self.y_0,
                 self.sigma_0,
             )
             self.episode_init = False
             self.t = last_T
+            # print("type of self.t: ", type(self.t))
 
             # t of ddim is set
             self.ddim_state = initialize_generalized_steps(
-                self.ddim_current_image,
+                self.ddim_current_image.to("cuda"),
                 self.ddim_seq[-1],
                 self.runner.betas,
                 self.H_funcs,
                 self.y_0,
                 self.sigma_0,
             )
-            interval = self.ddim_seq[0] - self.ddim_seq[1]
         
         # add current t and current action
         self._update_sequences(self.t, action)
 
         # TODO: Need to redesign
         # generate next t based on current action
+        # print("type of self.t: ", type(self.t)) = int
+        # print("type of interval: ", type(interval)) = int
+        # print("type of action: ", type(action)) = ndarray
         next_t = self._calculate_time_step(action, interval)
 
 
@@ -195,7 +208,9 @@ class DiffusionEnv(gym.Env):
         # TODO: Need to redesign
         reward, ssim, ddim_ssim = self.calculate_reward(done) 
         info = self._create_info_dict(ddim_t, self.t, reward, ssim, ddim_ssim)
-        observation = {"image": self.current_noise_image, "value": self.t}
+        # lower_dim_image = self.current_noise_image.reshape(self.batch_size, -1)
+        # observation = {"lower_dim_image": self.current_noise_image, "value": self.t}
+        observation = {"image": self.current_noise_image.squeeze(0), "value": self.t}
 
         # Updatee RL t
         self.t = next_t
@@ -203,11 +218,14 @@ class DiffusionEnv(gym.Env):
         return observation, reward, done, truncate, info
 
     def _calculate_time_step(self, action, interval):
-        t = int(torch.round(self.ddim_seq[self.current_step_num] - interval * action))
+        action = action.item()
+        # print("type: ", type(self.ddim_seq[self.current_step_num]))
+        # print("action = ", action)
+        t = int(torch.round(torch.tensor(self.ddim_seq[self.current_step_num] - interval * action)))
         return torch.tensor(max(0, min(t, 999)))
 
     def _update_sequences(self, t, action):
-        self.time_step_sequence.append(t.item())
+        self.time_step_sequence.append(t.item() if type(t) == torch.Tensor else t)
         self.action_sequence.append(action.item())
 
     def _perform_denoising_single_step(self, state, t, next_t):
@@ -217,17 +235,16 @@ class DiffusionEnv(gym.Env):
                 self.model,
                 t,
                 next_t,
-                self.diff_model.betas,
+                self.runner.betas,
                 self.H_funcs,
-                self.y_0,
                 self.sigma_0,
-                etaB=self.args.etaB,
-                etaA=self.args.eta,
-                etaC=self.args.eta,
+                etaB=self.runner.args.etaB,
+                etaA=self.runner.args.eta,
+                etaC=self.runner.args.eta,
                 cls_fn=self.cls_fn,
                 classes=self.classes,
             )
-            x = [inverse_data_transform(self.config, y) for y in xs]
+            x = torch.stack([inverse_data_transform(self.config, y) for y in xs])
         return x
 
     def _create_info_dict(self, ddim_t, t, reward, ssim, ddim_ssim):

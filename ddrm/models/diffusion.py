@@ -299,7 +299,14 @@ class Model(nn.Module):
                                         padding=1)
 
     def forward(self, x, t):
-        assert x.shape[2] == x.shape[3] == self.resolution
+        # print(x.shape)
+        if len(x.shape) == 3:
+            index_1 = 1
+            index_2 = 2
+        else:
+            index_1 = 2
+            index_2 = 3
+        assert x.shape[index_1] == x.shape[index_2] == self.resolution
 
         # timestep embedding
         temb = get_timestep_embedding(t, self.ch)

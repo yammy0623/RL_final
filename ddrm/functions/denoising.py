@@ -5,6 +5,7 @@ import os
 
 def compute_alpha(beta, t):
     beta = torch.cat([torch.zeros(1).to(beta.device), beta], dim=0)
+    t = torch.tensor(t).to(beta.device)
     a = (1 - beta).cumprod(dim=0).index_select(0, t + 1).view(-1, 1, 1, 1)
     return a
 
@@ -109,6 +110,8 @@ def efficient_generalized_steps(x, seq, model, b, H_funcs, y_0, sigma_0, etaB, e
 # Self Defined
 def initialize_generalized_steps(x, last_T, b, H_funcs, y_0, sigma_0):
     with torch.no_grad():
+        # print("device: ", x.device)
+        # print("singulars device: ", H_funcs.singulars().device)
         singulars = H_funcs.singulars()
         Sigma = torch.zeros(x.shape[1]*x.shape[2]*x.shape[3], device=x.device)
         Sigma[:singulars.shape[0]] = singulars
@@ -145,14 +148,17 @@ def initialize_generalized_steps(x, last_T, b, H_funcs, y_0, sigma_0):
 def denoise_single_step(state, model, t, next_t, b, H_funcs, sigma_0, etaB, etaA, etaC, cls_fn=None, classes=None):
     with torch.no_grad():
         x = state["x"]
+        xs = [x]
         Sigma = state["Sigma"]
         Sig_inv_U_t_y = state["Sig_inv_U_t_y"]
         U_t_y = state["U_t_y"]
         singulars = state["singulars"]
+        t = torch.tensor([t]).to(x.device)
+        next_t = torch.tensor([next_t]).to(x.device)
 
         at = compute_alpha(b, t.long())
         at_next = compute_alpha(b, next_t.long())
-        xt = x[-1].to('cuda')
+        xt = xs[-1].to('cuda')
         if cls_fn == None:
             et = model(xt, t)
         else:

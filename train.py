@@ -24,6 +24,7 @@ import os
 import numpy as np
 import shutil
 import sys
+import math
 from ddrm.runners.diffusion import Diffusion
 
 
@@ -66,7 +67,13 @@ class CustomCNN(BaseFeaturesExtractor):
         super().__init__(observation_space, features_dim)
         # We assume CxHxW images (channels first)
         # Re-ordering will be done by pre-preprocessing or wrapper
+        # batch_size = observation_space["lower_dim_image"].shape[0]
+        # res = math.sqrt(observation_space["lower_dim_image"].shape[1]//3)
+        # self.obs_restored = observation_space["lower_dim_image"].reshape(
+        #     batch_size, 3, res, res
+        # )
         n_input_channels = observation_space["image"].shape[0]
+        n_input_channels = 3
         self.cnn = nn.Sequential(
             nn.Conv2d(n_input_channels, 32, kernel_size=3, stride=1, padding=0),
             nn.ReLU(),
@@ -91,7 +98,7 @@ class CustomCNN(BaseFeaturesExtractor):
         return self.linear(combined)
 
 
-def eval(env, model, eval_episode_num):
+def eval(env, rl_model, eval_episode_num):
     """Evaluate the model and return avg_score and avg_highest"""
     avg_reward = 0
     avg_ssim = 0
@@ -104,7 +111,7 @@ def eval(env, model, eval_episode_num):
 
         # Interact with env using old Gym API
         while not done:
-            action, _ = model.predict(obs, deterministic=True)
+            action, _ = rl_model.predict(obs, deterministic=True)
             obs, _, done, info = env.step(action)
 
         avg_reward += info[0]["reward"]
@@ -118,14 +125,14 @@ def eval(env, model, eval_episode_num):
     return avg_reward, avg_ssim, avg_ddim_ssim, info[0]["time_step_sequence"]
 
 
-def train(eval_env, model, config):
+def train(eval_env, rl_model, config):
     """Train agent using SB3 algorithm and my_config"""
     current_best = 0
     for epoch in range(config["epoch_num"]):
 
         # Uncomment to enable wandb logging
         if LOG:
-            model.learn(
+            rl_model.learn(
                 total_timesteps=config["timesteps_per_epoch"],
                 reset_num_timesteps=False,
                 callback=WandbCallback(
@@ -138,7 +145,7 @@ def train(eval_env, model, config):
         print(config["run_id"])
         print("Epoch: ", epoch)
         avg_reward, avg_ssim, avg_ddim_ssim, time_step_sequence = eval(
-            eval_env, model, config["eval_episode_num"]
+            eval_env, rl_model, config["eval_episode_num"]
         )
 
         print("Avg_reward:  ", avg_reward)
@@ -160,7 +167,7 @@ def train(eval_env, model, config):
             print("Saving Model")
             current_best = avg_ssim
             save_path = config["save_path"]
-            model.save(f"{save_path}/{epoch}")
+            rl_model.save(f"{save_path}/{epoch}")
 
         print("---------------")
 
@@ -173,7 +180,7 @@ def parse_args_and_config():
     )
     parser.add_argument("--seed", type=int, default=1234, help="Random seed")
     parser.add_argument(
-        "--exp", type=str, default="ddrm\exp", help="Path for saving running related data."
+        "--exp", type=str, default="ddrm/exp", help="Path for saving running related data."
     )
     parser.add_argument(
         "--doc",
@@ -222,7 +229,7 @@ def parse_args_and_config():
     args.log_path = os.path.join(args.exp, "logs", args.doc)
 
     # parse config file
-    with open(os.path.join("ddrm\\configs", args.config), "r") as f:
+    with open(os.path.join("ddrm/configs", args.config), "r") as f:
         config = yaml.safe_load(f)
     new_config = dict2namespace(config)
 
@@ -302,6 +309,7 @@ def main():
     args, config = parse_args_and_config()
     runner = Diffusion(args, config)
     diff_model, cls = runner.get_model()
+    print("cls = ", cls)
     my_config = {
         "run_id": "SAC_v1",
         "algorithm": MD_SAC,
@@ -342,7 +350,7 @@ def main():
 
     # Create model from loaded config and train
     # Note: Set verbose to 0 if you don't want info messages
-    model = my_config["algorithm"](
+    rl_model = my_config["algorithm"](
         my_config["policy_network"],
         train_env,
         verbose=2,
@@ -351,7 +359,7 @@ def main():
         policy_kwargs=my_config["policy_kwargs"],
     )
 
-    train(eval_env, model, my_config)
+    train(eval_env, rl_model, my_config)
 
     # obs = env.reset()
     # for _ in range(1000):
