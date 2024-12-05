@@ -17,6 +17,8 @@ class EvalDiffusionEnv(gym.Env):
         self.sample_number_count = 0
         self.img_save_path = img_save_path
         self.target_steps = target_steps
+
+        
         # Load diffusion model
         if os.path.isdir(model_name):
             from diffusers_old import DDIMPipeline, DDIMScheduler, UNet2DModel
