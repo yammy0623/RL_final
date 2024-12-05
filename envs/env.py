@@ -64,6 +64,7 @@ class DiffusionEnv(gym.Env):
         self.ddim_seq = seq
         self.ddim_seq_next = seq_next
 
+        # RL steps
         self.time_step_sequence = []
         self.action_sequence = []
         self.max_steps = max_steps
