@@ -59,11 +59,13 @@ class DiffusionEnv(gym.Env):
 
         # ddim sequence
         skip = self.runner.num_timesteps // self.runner.args.timesteps
+        self.interval = self.runner.num_timesteps // target_steps
+        # seq = range(self.runner.num_timesteps, 0, -1*skip)
         seq = range(0, self.runner.num_timesteps, skip)
         seq_next = [-1] + list(seq[:-1])
 
-        self.ddim_seq = seq
-        self.ddim_seq_next = seq_next
+        self.ddim_seq = list(reversed(seq))
+        self.ddim_seq_next = list(reversed(seq_next))
 
         self.time_step_sequence = []
         self.action_sequence = []
@@ -152,7 +154,8 @@ class DiffusionEnv(gym.Env):
         # RL Method
         # Denoise current image at time t
         # Q: how to design the last T
-        interval = self.ddim_seq[0] - self.ddim_seq[1]
+        interval = self.interval
+        # print("interval = ", interval)
         if self.episode_init:
             # Randomly pick last T in a certain range
             last_T = torch.randint(low=800, high=1000, size=(1,)).item()
@@ -171,7 +174,7 @@ class DiffusionEnv(gym.Env):
             # t of ddim is set
             self.ddim_state = initialize_generalized_steps(
                 self.ddim_current_image.to("cuda"),
-                self.ddim_seq[-1],
+                self.ddim_seq[0],
                 self.runner.betas,
                 self.H_funcs,
                 self.y_0,
@@ -195,10 +198,11 @@ class DiffusionEnv(gym.Env):
 
         # DDRM
         ddim_t = self.ddim_seq[self.current_step_num]
+        # print("ddim_t = ", ddim_t)
         self.ddim_current_image = self._perform_denoising_single_step(
             self.ddim_state,
             t=ddim_t,
-            next_t=self.ddim_seq[self.current_step_num],
+            next_t=self.ddim_seq_next[self.current_step_num],
         )
         # Check if the episode is done
         done = self.current_step_num == self.target_steps - 1
@@ -221,8 +225,17 @@ class DiffusionEnv(gym.Env):
         action = action.item()
         # print("type: ", type(self.ddim_seq[self.current_step_num]))
         # print("action = ", action)
+        # print("current_step_num = ", self.current_step_num)
+        # print("ddim_seq = ", self.ddim_seq)
+        # print("self.ddim_seq[self.current_step_num] = ", self.ddim_seq[self.current_step_num])
+        print("interval = ", interval)
+        print("action = ", action)
         t = int(torch.round(torch.tensor(self.ddim_seq[self.current_step_num] - interval * action)))
-        return torch.tensor(max(0, min(t, 999)))
+        # t = int(torch.round(torch.tensor(self.t - interval * action)))
+        print("t = ", t)
+        final_t = max(0, min(t, 999))
+        print("final_t = ", final_t)
+        return torch.tensor(final_t)
 
     def _update_sequences(self, t, action):
         self.time_step_sequence.append(t.item() if type(t) == torch.Tensor else t)

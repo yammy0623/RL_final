@@ -5,7 +5,7 @@ import os
 
 def compute_alpha(beta, t):
     beta = torch.cat([torch.zeros(1).to(beta.device), beta], dim=0)
-    t = torch.tensor(t).to(beta.device)
+    t = torch.tensor(t).to(beta.device).long()
     a = (1 - beta).cumprod(dim=0).index_select(0, t + 1).view(-1, 1, 1, 1)
     return a
 
