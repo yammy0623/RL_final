@@ -2,9 +2,11 @@
 **DATA and Checkpoint**
 Download [here](https://drive.google.com/drive/folders/1cSCTaBtnL7OIKXT4SVME88Vtk4uDd_u4)!
 
-The models and datasets are placed in the `exp/` folder as follows:
+A list of images for demonstration purposes can be found here: [https://github.com/jiamings/ddrm-exp-datasets](https://github.com/jiamings/ddrm-exp-datasets). Place them under the `<ddrm/exp>/datasets` folder
+
+The models and datasets are placed in the `ddrm/exp/` folder as follows:
 ```bash
-<exp> # a folder named by the argument `--exp` given to main.py
+<ddrm/exp> # a folder named by the argument `--exp` given to main.py
 ├── datasets # all dataset files
 │   ├── celeba # all CelebA files
 │   ├── imagenet # all ImageNet files
@@ -47,8 +49,6 @@ where the following are options
 
 
 ### Images for Demonstration Purposes
-A list of images for demonstration purposes can be found here: [https://github.com/jiamings/ddrm-exp-datasets](https://github.com/jiamings/ddrm-exp-datasets). Place them under the `<exp>/datasets` folder, and these commands can be excecuted directly:
-
 CelebA noisy 4x super-resolution:
 ```
 python train.py --ni --config celeba_hq.yml --doc celeba --timesteps 20 --eta 0.85 --etaB 1 --deg sr4 --sigma_0 0.05 -i celeba_hq_sr4_sigma_0.05
