@@ -298,6 +298,8 @@ def dict2namespace(config):
 
 
 def main():
+    # TODO: debug
+    os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 
     policy_kwargs = dict(
         features_extractor_class=CustomCNN,
