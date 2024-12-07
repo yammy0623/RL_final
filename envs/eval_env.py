@@ -60,20 +60,6 @@ class EvalDiffusionEnv(gym.Env):
         self.data_iter = iter(self.val_loader)
         self.GT_image, self.classes = next(self.data_iter)
 
-        # Load diffusion model
-        # if os.path.isdir(model_name):
-        #     from diffusers_old import DDIMPipeline, DDIMScheduler, UNet2DModel
-        #     print("Loading model from {}".format(model_name))
-        #     subfolder = 'unet' if os.path.isdir(os.path.join(model_name, 'unet')) else None
-        #     self.model = UNet2DModel.from_pretrained(model_name, subfolder=subfolder).eval()
-        #     scheduler_subfolder = 'scheduler'
-        # # standard model
-        # else:
-        #     from diffusers import DDIMPipeline, DDIMScheduler, UNet2DModel
-        #     print("Loading pretrained model from {}".format(model_name))
-        #     self.model = UNet2DModel.from_pretrained(model_name).to("cuda")
-        #     scheduler_subfolder = None
-
         self.model.to("cuda")
         self.sample_size = self.model.config.sample_size
         # RL steps
