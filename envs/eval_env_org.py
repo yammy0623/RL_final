@@ -3,7 +3,6 @@ from gymnasium import spaces
 from gymnasium.utils import seeding
 import numpy as np
 import torch
-# from diffusers_old import DDIMPipeline, DDIMScheduler, UNet2DModel
 import os
 from PIL import Image
 from skimage.metrics import structural_similarity
