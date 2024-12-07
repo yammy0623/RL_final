@@ -315,6 +315,7 @@ def main():
     my_config = {
         "run_id": "SAC_v1",
         "algorithm": MD_SAC,
+        "buffer_size": 100_000, # for SAC only, default is 1e6.
         "policy_network": "MultiInputPolicy",
         "save_path": "model/sample_model",
         "epoch_num": 500,
@@ -359,6 +360,7 @@ def main():
         tensorboard_log=my_config["run_id"],
         learning_rate=my_config["learning_rate"],
         policy_kwargs=my_config["policy_kwargs"],
+        buffer_size=my_config["buffer_size"]
     )
 
     train(eval_env, rl_model, my_config)
