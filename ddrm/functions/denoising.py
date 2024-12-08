@@ -209,4 +209,4 @@ def denoise_single_step(state, model, t, next_t, b, H_funcs, sigma_0, etaB, etaA
         xt_mod_next = H_funcs.V(Vt_xt_mod_next)
         xt_next = (at_next.sqrt()[0, 0, 0, 0] * xt_mod_next).view(*x.shape)
 
-    return x0_t.to("cpu"), xt_next.to("cpu")
+    return xt_next.to("cpu"), x0_t.to("cpu")
