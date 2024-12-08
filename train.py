@@ -97,8 +97,8 @@ class CustomCNN(BaseFeaturesExtractor):
 def eval(env, rl_model, eval_episode_num):
     """Evaluate the model and return avg_score and avg_highest"""
     avg_reward = 0
-    avg_ssim = 0
-    avg_ddim_ssim = 0
+    avg_psnr = 0
+    avg_lpips = 0
     for seed in range(eval_episode_num):
         done = False
         # Set seed using old Gym API
@@ -111,14 +111,14 @@ def eval(env, rl_model, eval_episode_num):
             obs, _, done, info = env.step(action)
 
         avg_reward += info[0]["reward"]
-        avg_ssim += info[0]["ssim"]
-        avg_ddim_ssim += info[0]["ddim_ssim"]
+        avg_psnr += info[0]["avg_psnr"]
+        avg_lpips += info[0]["avg_lpips"]
 
     avg_reward /= eval_episode_num
-    avg_ssim /= eval_episode_num
-    avg_ddim_ssim /= eval_episode_num
+    avg_psnr /= eval_episode_num
+    avg_lpips /= eval_episode_num
 
-    return avg_reward, avg_ssim, avg_ddim_ssim, info[0]["time_step_sequence"]
+    return avg_reward, avg_psnr, avg_lpips, info[0]["time_step_sequence"]
 
 
 def train(eval_env, rl_model, config):
