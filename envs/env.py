@@ -106,7 +106,9 @@ class DiffusionEnv(gym.Env):
         # 第一步容許跳到離散數線上任意一步，而剩下的再由剩餘空間中找，但不能一次就走到最底，所以要減掉可走的步數
         # self.action_space = gym.spaces.Discrete(self.skip - self.max_steps)
         self.t = 999    # initialize the first timestep
-        self.action_space = gym.spaces.Box(low=self.target_steps, high=self.t, shape=(1,))
+
+        # 限制初始action 選擇在(0, 20-5)
+        self.action_space = gym.spaces.Box(low=0, high=self.skip-self.target_steps, shape=(1,))
 
         self.observation_space = Dict(
             {
@@ -203,15 +205,16 @@ class DiffusionEnv(gym.Env):
                 self.y_0,
                 self.sigma_0,
             )
-            # self.t = next_t
-            self.episode_init = False
-            # print("type of self.t: ", type(self.t))
+
+            # init之後，action space縮小選擇範圍
+            self.action_space = gym.spaces.Box(low=1, high=5, shape=(1,))
 
             # DDRM as intermediate GT
             self.ddrm_seq_result = self._perform_denoising_sequence(
                 self.ddrm_current_image.to("cuda"),
                 self.ddrm_seq
             )
+
 
         
         # add current t and current action
@@ -238,6 +241,7 @@ class DiffusionEnv(gym.Env):
 
         
         self.current_step_num += 1
+        self.episode_init = False
         # 下一次的action space會變小(只能從當前的 t 去往後挑)
         # self.skip = self.t // self.runner.args.timesteps
         # action space 選擇在剩餘還可以走的step上
@@ -245,8 +249,7 @@ class DiffusionEnv(gym.Env):
         print("current_step_num: ", self.current_step_num)
         print("max_steps: ", self.max_steps)
         print("t = ", self.t)
-        self.action_space = gym.spaces.Box(low=(self.target_steps - self.current_step_num), high=int(self.t), shape=(1,))
-
+        
         return observation, reward, done, truncate, info
 
     def _calculate_time_step(self, action):
@@ -255,9 +258,10 @@ class DiffusionEnv(gym.Env):
         # print("interval: ", self.interval)
         # print("current_index: ", self.current_index)
         # print("current t: ", self.ddrm_seq_reversed[self.current_index])
-        # t = int(torch.round(torch.tensor(self.ddrm_seq_reversed[self.current_index] - action)))
-        t = int(torch.round(torch.tensor(action)))
+        t = int(torch.round(torch.tensor(self.ddrm_seq_reversed[self.current_index - action])))
+        # t = int(torch.round(torch.tensor(action)))
         final_t = max(0, min(t, 999))
+
         return torch.tensor(final_t)
 
     def _update_sequences(self, t, action):
