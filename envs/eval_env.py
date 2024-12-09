@@ -118,7 +118,7 @@ class EvalDiffusionEnv(gym.Env):
             self.classes,
         )
         self.y_0 = y_0
-        self.ddim_current_image = self.current_noise_image.clone()
+        self.ddrm_current_image = self.current_noise_image.clone()
 
     def seed(self, seed=None):
         # self.np_random, seed = seeding.np_random(seed)

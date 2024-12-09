@@ -54,7 +54,7 @@ class DiffusionEnv(gym.Env):
 
     def _initialize_images(self):
         self.current_image = torch.randn((1, 3, self.sample_size, self.sample_size), device="cuda", generator=self.generator)
-        self.ddim_current_image = self.current_image.clone()
+        self.ddrm_current_image = self.current_image.clone()
 
     def seed(self, seed=None):
         # self.np_random, seed = seeding.np_random(seed)
@@ -79,7 +79,7 @@ class DiffusionEnv(gym.Env):
         self.time_step_sequence = []
         self.action_sequence = []
         self.current_image = torch.randn((1, 3, self.sample_size, self.sample_size), device="cuda", generator=self.generator)
-        self.ddim_current_image = self.current_image.clone()
+        self.ddrm_current_image = self.current_image.clone()
 
     def _generate_ground_truth_image(self):
         input = self.current_image.clone().to("cuda")
@@ -106,7 +106,7 @@ class DiffusionEnv(gym.Env):
 
         # Perform DDIM step
         ddim_t = self.ddim_scheduler.timesteps[self.current_step_num]
-        self.ddim_current_image = self._perform_denoising_step(ddim_t, self.ddim_current_image)
+        self.ddrm_current_image = self._perform_denoising_step(ddim_t, self.ddrm_current_image)
 
         # Check if the episode is done
         done = self.current_step_num == self.target_steps - 1
@@ -159,7 +159,7 @@ class DiffusionEnv(gym.Env):
         #     images = Image.fromarray((images * 255).round().astype("uint8"))
         #     filename = os.path.join('img', f"RL_{self.current_step_num}.png")
         #     images.save(filename)
-        #     images = (self.ddim_current_image / 2 + 0.5).clamp(0, 1)
+        #     images = (self.ddrm_current_image / 2 + 0.5).clamp(0, 1)
         #     images = images.cpu().permute(0, 2, 3, 1).numpy()[0]
         #     images = Image.fromarray((images * 255).round().astype("uint8"))
         #     filename = os.path.join('img', f"ddim_{self.current_step_num}.png")
@@ -174,9 +174,9 @@ class DiffusionEnv(gym.Env):
     def calculate_reward(self, done):
         reward = 0
         # similarity = torch.nn.functional.mse_loss(self.current_image, self.GT_image)
-        # ddim_similarity = torch.nn.functional.mse_loss(self.ddim_current_image, self.GT_image)
+        # ddim_similarity = torch.nn.functional.mse_loss(self.ddrm_current_image, self.GT_image)
         ssim = structural_similarity(((self.current_image[0]+1.0)/2.0).cpu().numpy(), ((self.GT_image[0]+1.0)/2.0).cpu().numpy() ,multichannel=True,channel_axis=0, data_range=1)
-        ddim_ssim = structural_similarity(((self.ddim_current_image[0]+1.0)/2.0).cpu().numpy(), ((self.GT_image[0]+1.0)/2.0).cpu().numpy() ,multichannel=True,channel_axis=0, data_range=1)
+        ddim_ssim = structural_similarity(((self.ddrm_current_image[0]+1.0)/2.0).cpu().numpy(), ((self.GT_image[0]+1.0)/2.0).cpu().numpy() ,multichannel=True,channel_axis=0, data_range=1)
         # Intermediate reward
         if ssim > ddim_ssim:
             reward += 1/self.target_steps
