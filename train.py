@@ -33,11 +33,6 @@ register(
 )
 
 
-# def make_env(my_config):
-#     env = gym.make('final-v0')#, model_name=my_config["DM_model"], target_steps=my_config["target_steps"], max_steps=my_config["max_steps"])
-#     return env
-
-
 def make_env(my_config):
     def _init():
         config = {
@@ -260,17 +255,23 @@ def main():
             id=my_config["run_id"],
         )
 
+    config = {
+            "runner": my_config["runner"],
+            "model": my_config["diff_model"],
+            "cls": my_config["diff_cls"],
+            "target_steps": my_config["target_steps"],
+            "max_steps": my_config["max_steps"],
+            "agent1": None,
+        }
     # Create training environment
     num_train_envs = my_config["num_train_envs"]
-    train_env = DummyVecEnv([make_env(my_config) for _ in range(num_train_envs)])
-    # train_env = SubprocVecEnv([make_env(my_config) for _ in range(num_train_envs)])
-
-    # env = DiffusionEnv('google/ddpm-cifar10-32')
-    # model = SAC("CnnPolicy", env, policy_kwargs=policy_kwargs, verbose=1)
-    # model.learn(total_timesteps=20000)
+    train_env = DummyVecEnv([make_env(config) for _ in range(num_train_envs)])
 
     # Create evaluation environment
-    eval_env = DummyVecEnv([make_env(my_config)])
+    # eval_env = DummyVecEnv([make_env(my_config)])
+    # TODO: Why using SB3 API?
+    # Create evaluation environment (via SB3 API) 
+    eval_env = gym.make('final-v0', **config)
 
     # Create model from loaded config and train
     # Note: Set verbose to 0 if you don't want info messages
