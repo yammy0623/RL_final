@@ -46,6 +46,7 @@ def make_env(my_config):
             "cls": my_config["diff_cls"],
             "target_steps": my_config["target_steps"],
             "max_steps": my_config["max_steps"],
+            "agent1": my_config["agent1"],
         }
         return gym.make("final-v0", **config)
 
@@ -61,13 +62,7 @@ class CustomCNN(BaseFeaturesExtractor):
 
     def __init__(self, observation_space: spaces.Box, features_dim: int = 256):
         super().__init__(observation_space, features_dim)
-        # We assume CxHxW images (channels first)
-        # Re-ordering will be done by pre-preprocessing or wrapper
-        # batch_size = observation_space["lower_dim_image"].shape[0]
-        # res = math.sqrt(observation_space["lower_dim_image"].shape[1]//3)
-        # self.obs_restored = observation_space["lower_dim_image"].reshape(
-        #     batch_size, 3, res, res
-        # )
+
         n_input_channels = observation_space["image"].shape[0]
         n_input_channels = 3
         self.cnn = nn.Sequential(
@@ -85,45 +80,75 @@ class CustomCNN(BaseFeaturesExtractor):
             ).shape[1]
 
         self.fc = nn.Linear(1, 32)
-        self.linear = nn.Sequential(nn.Linear(n_flatten + 32, features_dim), nn.ReLU())
+        self.embedding_output = nn.Linear(32, features_dim * 2)
+        self.out_norm = nn.Linear(n_flatten, features_dim)  # Normalizing layer
+        self.out_rest = nn.Sequential(
+            nn.Linear(features_dim, features_dim),  # Further processing layer
+            nn.ReLU()
+        )
 
     def forward(self, observations: th.Tensor) -> th.Tensor:
-        img_features = self.cnn(observations["image"].float())
-        value_features = F.relu(self.fc(observations["value"].float()))
-        combined = th.cat([img_features, value_features], dim=1)
-        return self.linear(combined)
-
+        img_features = self.cnn(observations['image'].float())
+        value_features = F.relu(self.fc(observations['value'].float()))
+        if self.use_scale_shift_norm:
+            emb_out = self.embedding_output(value_features)
+            scale, shift = th.chunk(emb_out, 2, dim=1)
+            h = self.out_norm(img_features) * (1 + scale) + shift
+            h = self.out_rest(h)
+        else:
+            h = self.out_rest(self.out_norm(img_features + value_features))
+        return h
 
 def eval(env, rl_model, eval_episode_num):
     """Evaluate the model and return avg_score and avg_highest"""
     avg_reward = 0
+    avg_reward_t = [0 for _ in range(5)]
     avg_ssim = 0
-    avg_ddim_ssim = 0
-    for seed in range(eval_episode_num):
-        done = False
-        # Set seed using old Gym API
-        env.seed(seed)
-        obs = env.reset()
+    avg_psnr = 0
+    ddim_ssim = 0
+    ddim_psnr = 0
+    avg_start_t = 0
 
-        # Interact with env using old Gym API
-        while not done:
-            action, _ = rl_model.predict(obs, deterministic=True)
-            obs, _, done, info = env.step(action)
+    with th.no_grad():
+        for seed in range(eval_episode_num):
+            done = False
+            # Set seed using old Gym API
+            # env.seed(seed)
+            # obs = env.reset()
+            obs, info = env.reset(seed=seed)
+            now_t = 0
+            # Interact with env using old Gym API
+            while not done:
+                action, _state = rl_model.predict(obs, deterministic=True)
+                obs, reward, done, _, info = env.step(action)
+                avg_reward_t[now_t] += info['reward']
+                now_t += 1
 
-        avg_reward += info[0]["reward"]
-        avg_ssim += info[0]["ssim"]
-        avg_ddim_ssim += info[0]["ddim_ssim"]
+            avg_reward += info['reward']
+            avg_ssim   += info['ssim']
+            avg_psnr += info['psnr']
+            ddim_ssim += info['ddim_ssim']
+            ddim_psnr += info['ddim_psnr']
+            avg_start_t += info['time_step_sequence'][0]
+
 
     avg_reward /= eval_episode_num
     avg_ssim /= eval_episode_num
-    avg_ddim_ssim /= eval_episode_num
+    avg_psnr /= eval_episode_num
+    ddim_ssim /= eval_episode_num
+    ddim_psnr /= eval_episode_num
+    avg_start_t /= eval_episode_num
+    for i in range(5):
+        avg_reward_t[i] = avg_reward_t[i] / eval_episode_num
+    
+    return avg_reward, avg_ssim, avg_psnr, ddim_ssim, ddim_psnr, info['time_step_sequence'], info['action_sequence'], avg_reward_t, avg_start_t
 
-    return avg_reward, avg_ssim, avg_ddim_ssim, info[0]["time_step_sequence"]
-
-
-def train(eval_env, rl_model, config):
+def train(eval_env, rl_model, config, second_stage=False):
     """Train agent using SB3 algorithm and my_config"""
-    current_best = 0
+    current_best_psnr = 0
+    current_best_ssim = 0
+
+
     for epoch in range(config["epoch_num"]):
 
         # Uncomment to enable wandb logging
@@ -136,50 +161,70 @@ def train(eval_env, rl_model, config):
                     verbose=2,
                 ),
             )
+        else:
+            rl_model.learn(
+                total_timesteps=config["timesteps_per_epoch"],
+                reset_num_timesteps=False,
+                progress_bar=True,
+            )
 
+        th.cuda.empty_cache()  # Clear GPU cache
+        
         ### Evaluation
         print(config["run_id"])
         print("Epoch: ", epoch)
-        avg_reward, avg_ssim, avg_ddim_ssim, time_step_sequence = eval(
+        avg_reward, avg_ssim, avg_psnr, ddim_ssim, ddim_psnr, time_step_sequence, action_sequence, avg_reward_t, avg_start_t = eval(
             eval_env, rl_model, config["eval_episode_num"]
         )
+        print("---------------")
+
+        ### Save best model
+        if current_best_psnr < avg_psnr and current_best_ssim < avg_ssim:# and epoch > 10:
+            print("Saving Model !!!")
+            current_best_psnr = avg_psnr
+            current_best_ssim = avg_ssim
+            save_path = config["save_path"]
+            if not os.path.exists(save_path):
+                os.makedirs(save_path)
+            if second_stage:
+                rl_model.save(f"{save_path}/best_2")
+            else:
+                rl_model.save(f"{save_path}/best")
+
 
         print("Avg_reward:  ", avg_reward)
+        print("Avg_reward_t:  ", avg_reward_t)
+        print("Avg_start_t:  ", avg_start_t)
         print("Avg_ssim:    ", avg_ssim)
-        print("Avg_ddim_ssim:", avg_ddim_ssim)
+        print("Avg_psnr:    ", avg_psnr)
+        print("Current_best_ssim:", current_best_ssim)
+        print("Current_best_psnr:", current_best_psnr)
+        print("DDIM_ssim:   ", ddim_ssim)
+        print("DDIM_psnr:   ", ddim_psnr)
         print("Time_step_sequence:", time_step_sequence)
+        print("Action_sequence:", action_sequence)
         print()
+
+
         if LOG:
             wandb.log(
                 {
                     "avg_reward": avg_reward,
                     "avg_ssim": avg_ssim,
-                    "avg_ddim_ssim": avg_ddim_ssim,
+                    "avg_psnr": avg_psnr,
+                    "ddim_ssim": ddim_ssim,
+                    "ddim_psnr": ddim_psnr,
+                    "start_t": avg_start_t,
                 }
             )
-
-        ### Save best model
-        if current_best < avg_ssim:
-            print("Saving Model")
-            current_best = avg_ssim
-            save_path = config["save_path"]
-            rl_model.save(f"{save_path}/{epoch}")
-
-        print("---------------")
-
-
-
-
-
-
+        
 
 def main():
-    # TODO: debug
-    os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
+
 
     policy_kwargs = dict(
         features_extractor_class=CustomCNN,
-        features_extractor_kwargs=dict(features_dim=32),
+        features_extractor_kwargs=dict(features_dim=256),
     )
 
     # Create diffusion model
@@ -187,26 +232,26 @@ def main():
     args, config = parse_args_and_config()
     runner = Diffusion(args, config)
     diff_model, cls = runner.get_model()
-    print("cls = ", cls)
+
     my_config = {
-        "run_id": "SAC_v1",
         "algorithm": MD_SAC,
-        "buffer_size": 100_000, # for SAC only, default is 1e6.
+        "buffer_size": 100000, # for SAC only, default is 1e6.
+        "num_train_envs": 16,
         "policy_network": "MultiInputPolicy",
-        "save_path": "model/sample_model",
         "epoch_num": 500,
         "timesteps_per_epoch": 100,
-        "eval_episode_num": 10,
+        "eval_episode_num": 16,
         "learning_rate": 1e-4,
         "policy_kwargs": policy_kwargs,
         "runner": runner,
         "diff_model": diff_model,
         "diff_cls": cls,
-        # "DM_model": "model/ddpm_ema_cifar10",
-        "target_steps": 10,
+        "target_steps": args.target_steps,
         "max_steps": 100,
-        "num_train_envs": 1,
     }
+    my_config['run_id'] = f'SR_2agent_A2C_env_{my_config["num_train_envs"]}_steps_{my_config["target_steps"]}'
+    my_config['save_path'] = f'model/SR_2agent_A2C_{my_config["target_steps"]}'
+
     if LOG:
         _ = wandb.init(
             project="final",
@@ -239,17 +284,26 @@ def main():
         buffer_size=my_config["buffer_size"]
     )
 
-    train(eval_env, rl_model, my_config)
+    if args.second_stage == False:
+        ### First stage training
+        train(eval_env, rl_model, my_config, epoch_num = my_config["first_stage_epoch_num"])
+    else:
+        ### Second stage training
+        print("Loaded model from: ", f"{my_config['save_path']}/best")
+        rl_model = my_config["algorithm"].load(f"{my_config['save_path']}/best")
+        config['agent1'] = rl_model
 
-    # obs = env.reset()
-    # for _ in range(1000):
-    #     action, _states = model.predict(obs, deterministic=True)
-    #     obs, reward, done, info = env.step(action)
-    #     print('Train info:', info)
-    #     env.render()
-    #     if done:
-    #         obs = env.reset()
-
+        train_env = DummyVecEnv([make_env(config) for _ in range(num_train_envs)])
+        eval_env = gym.make('final-v0', **config)
+        rl_model_2 = my_config["algorithm"](
+            my_config["policy_network"], 
+            train_env, 
+            verbose=2,
+            tensorboard_log=my_config["run_id"],
+            learning_rate=my_config["learning_rate"],
+            policy_kwargs=my_config["policy_kwargs"],
+        )
+        train(eval_env, rl_model_2, my_config, epoch_num = my_config["epoch_num"] - my_config["first_stage_epoch_num"], second_stage=True)
 
 if __name__ == "__main__":
     main()
