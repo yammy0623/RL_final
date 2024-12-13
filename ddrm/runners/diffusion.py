@@ -460,15 +460,15 @@ class Diffusion(object):
                 - 1
             )
         # 這段應該是存目前階段性的資訊
-        for i in range(len(pinv_y_0)):
-            tvu.save_image(
-                inverse_data_transform(config, pinv_y_0[i]),
-                os.path.join(self.args.image_folder, f"y0_{idx_so_far + i}.png"),
-            )
-            tvu.save_image(
-                inverse_data_transform(config, x_orig[i]),
-                os.path.join(self.args.image_folder, f"orig_{idx_so_far + i}.png"),
-            )
+        # for i in range(len(pinv_y_0)):
+        #     tvu.save_image(
+        #         inverse_data_transform(config, pinv_y_0[i]),
+        #         os.path.join(self.args.image_folder, f"y0_{idx_so_far + i}.png"),
+        #     )
+        #     tvu.save_image(
+        #         inverse_data_transform(config, x_orig[i]),
+        #         os.path.join(self.args.image_folder, f"orig_{idx_so_far + i}.png"),
+        #     )
 
         ##Begin DDIM
         x = torch.randn(
@@ -501,6 +501,13 @@ class Diffusion(object):
         avg_psnr = avg_psnr / (idx_so_far - idx_init)
         print("Total Average PSNR: %.2f" % avg_psnr)
         print("Number of samples: %d" % (idx_so_far - idx_init))
+
+    def save_img(self, x,  idx_so_far):
+        x = inverse_data_transform(self.config, x)
+        tvu.save_image(
+            x, os.path.join(self.args.image_folder, f"{idx_so_far}_{0}.png")
+        )
+
 
     def sample_image(
         self, x, y_0, sigma_0, H_funcs, model, last=True, cls_fn=None, classes=None

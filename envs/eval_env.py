@@ -14,7 +14,7 @@ import random
 
 # DDRM
 from ddrm.datasets import get_dataset, data_transform, inverse_data_transform
-from ddrm.functions.denoising import initialize_generalized_steps, denoise_single_step
+from ddrm.functions.denoising import initialize_generalized_steps, denoise_single_step, denoise_guided_addnoise
 import pdb
 
 
@@ -26,87 +26,77 @@ class EvalDiffusionEnv(gym.Env):
         cls,
         target_steps=10,
         max_steps=100,
-        img_save_path=None,
-        action_range=1.0,
-        seed=0,
+        threshold = 0.8,
+        agent1=None,
     ):
         super(EvalDiffusionEnv, self).__init__()
-        # Original Param
-        self.sample_number_count = 0
-        self.img_save_path = img_save_path
-        self.target_steps = target_steps
 
-        # DDRM
+        self.img_idx_so_far = 0
+             
+        # Model
+        self.last_T = 999
         self.runner = runner
-        val_loader, sigma_0, config, deg, H_funcs, model, idx_so_far, cls_fn = (
-            self.runner.sample(cls)
-        )
-
+        self.target_steps = target_steps
+        self.final_threshold = 0.9
+        val_loader, sigma_0, config, deg, H_funcs, model, idx_so_far, cls_fn = self.runner.sample(cls)
         self.val_loader = val_loader
         self.sigma_0 = sigma_0
         self.config = config
         self.deg = deg
         self.H_funcs = H_funcs
         self.model = model
+        self.model.to("cuda")
+        
         self.idx_so_far = idx_so_far
         self.cls_fn = cls_fn
-        self.model.to("cuda")
-
         self.valdata_len = self.runner.val_datalen
         self.current_image_idx = 0
         self.sample_size = config.data.image_size
         self.batch_size = config.sampling.batch_size
 
-        self.data_iter = iter(self.val_loader)
-        self.GT_image, self.classes = next(self.data_iter)
-
-        self.model.to("cuda")
-        self.sample_size = self.model.config.sample_size
-        # RL steps
-        # self.scheduler = DDIMScheduler.from_pretrained(model_name, subfolder=scheduler_subfolder)
-        # self.scheduler.set_timesteps(max_steps)
-        self.time_step_sequence = []
-        # self.action_sequence = []
+        # RL Setting
+        self.agent1 = agent1 # RL model from subtask 1
+        self.target_steps = target_steps
+        self.uniform_steps = [i for i in range(0, 999, 1000//self.target_steps)][::-1]    
+        self.adjust = True if agent1 is not None else False  
+        
         self.max_steps = max_steps
-        self.current_step_num = 0
 
-        # DDIM steps
-        # self.ddim_scheduler = DDIMScheduler.from_pretrained(model_name, subfolder=scheduler_subfolder)
-        # self.ddim_scheduler.set_timesteps(target_steps)
-        skip = self.runner.num_timesteps // self.runner.args.timesteps
-        self.interval = self.runner.num_timesteps // target_steps
-        # seq = range(self.runner.num_timesteps, 0, -1*skip)
-        seq = range(0, self.runner.num_timesteps, skip)
-        seq_next = [-1] + list(seq[:-1])
-        self.ddim_seq = list(reversed(seq))
-        self.ddim_seq_next = list(reversed(seq_next))
-
-        # Maximum number of steps  (Baseline)
-        self.max_steps = max_steps
         # Count the number of steps
-        self.current_step_num = 0
+        self.current_step_num = 0 
+        if self.adjust:
+            self.action_space = gym.spaces.Box(low=-5, high=5)
+        else:
+            self.action_space = spaces.Discrete(20)
+
         # Define the action and observation space
-        self.action_space = gym.spaces.Box(
-            low=-action_range, high=action_range, shape=(1,)
-        )
-        self.observation_space = Dict(
-            {
-                "image": Box(
-                    low=0,
-                    high=255,
-                    shape=(3, self.sample_size, self.sample_size),
-                    dtype=np.uint8,
-                ),
-                "value": Box(low=np.array([0]), high=np.array([999]), dtype=np.uint16),
-            }
-        )
-        # Initialize the random seed
-        self.seed(seed)
+        self.observation_space = Dict({
+            "image": Box(low=-1, high=1, shape=(3, self.sample_size, self.sample_size), dtype=np.float32),
+            "value": Box(low=np.array([0]), high=np.array([999]), dtype=np.uint16)
+        })
+
+    def seed(self, seed=None):
+        np.random.seed(seed)
+        random.seed(seed)
+        torch.manual_seed(seed)
+        torch.random.manual_seed(seed)
+
+    def reset(self, seed=None, options=None):
         self.episode_init = True
-        self.state = None
-        # Initialize with a random noisy image
-        # self.current_image = torch.randn((1, 3, self.sample_size, self.sample_size), device="cuda", generator=self.generator)
-        self.current_noise_image, y_0 = self.runner.sample_init(
+        if seed is not None:
+            self.seed(seed)
+
+        # Reset counter, sequence
+        self.current_step_num = 0
+        self.time_step_sequence = []
+        self.action_sequence = []
+
+        # Load Image
+        self.data_iter = iter(self.val_loader)
+        self.GT_image, self.classes = next(self.data_iter) 
+
+        # noise and low level image y_0, 
+        self.noise_image, self.y_0 = self.runner.sample_init(
             self.GT_image,
             self.sigma_0,
             self.config,
@@ -116,47 +106,90 @@ class EvalDiffusionEnv(gym.Env):
             self.idx_so_far,
             self.cls_fn,
             self.classes,
-        )
-        self.y_0 = y_0
-        self.ddim_current_image = self.current_noise_image.clone()
+        )  
 
-    def seed(self, seed=None):
-        # self.np_random, seed = seeding.np_random(seed)
-        print("Set seed:", seed)
-        self.generator = torch.Generator(device="cuda").manual_seed(seed)
-        np.random.seed(seed)
-        random.seed(seed)
-        torch.manual_seed(seed)
-        torch.random.manual_seed(seed)
-        # return [seed]
 
-    def reset(self, seed=None, options=None):
-        self.episode_init = True
-        if seed is not None:
-            self.seed(seed)
-
-        if self.current_image_idx < self.valdata_len - 1:
-            # print("Current image index: ", self.current_image_idx)
-            # print("Val data length: ", self.valdata_len)
-            self.current_image_idx += 1
-
-            self.current_step_num = 0
-            self.time_step_sequence = []
-            # self.action_sequence = []
-
-            # Change to next image
-            self._load_next_image()
-        else:
-            # print("All images are used. Resetting to the first image.")
-            self.current_image_idx = 0
-            self.data_iter._reset(self.val_loader)
+        # Initialization, extract degradation information from y_0 sigma 0, and H_func
+        self.state = initialize_generalized_steps(
+                self.noise_image.to("cuda"),
+                self.last_T,
+                self.runner.betas,
+                self.H_funcs,
+                self.y_0,
+                self.sigma_0,
+            )
+        self.x0_t = self.state['x']
 
         observation = {
-            # "lower_dim_image": (self.current_noise_image).reshape(self.batch_size, 1).cpu().numpy(),
-            "image": torch.tensor(self.current_noise_image).squeeze(0).cpu().numpy(),
-            "value": np.array([999]),
+            "image": self.x0_t[0].cpu(),  
+            "value": np.array([999])
         }
+       
+        
+        with torch.no_grad():
+            action, _state = self.agent1.predict(observation, deterministic=True)
+            start_t = 50 * (1+action) - 1
+            next_t = torch.tensor(int(max(0, min(start_t, 999))))
+            self.interval = int(next_t / (self.target_steps - 1))
+            self.state['x'] = denoise_guided_addnoise(self.state, self.at, self.et, self.x0_t, self.H_funcs, self.sigma_0, self.runner.args)
+            self.action_sequence.append(action.item())
+            
+            # Next round
+            self.t = next_t
+            self.x0_t, self.at, self.et = denoise_single_step(self.state, self.model, self.t, self.cls_fn, self.classes)
+            self.time_step_sequence.append(self.t.item())
+            observation = {
+                    "image": self.x0_t.cpu(),
+                    "value": np.array([self.t])
+                }
+            self.current_step_num += 1
+
+        torch.cuda.empty_cache()  # Clear GPU cache
         return observation, {}
+
+
+    def step(self, action):
+        truncate = self.current_step_num >= self.max_steps
+
+        with torch.no_grad():
+            next_t = self.t - self.interval - self.interval * action
+            next_t = torch.tensor(int(max(0, min(next_t, 999))))
+            self.interval = int(next_t / (self.target_steps - self.current_step_num - 1)) if (self.target_steps - self.current_step_num - 1) != 0 else self.interval
+            self.state['x'] = denoise_guided_addnoise(self.state, self.at, self.et, self.x0_t, self.H_funcs, self.sigma_0, self.runner.args)
+            self.action_sequence.append(action.item())
+
+            self.t = next_t
+            self.x0_t, self.at, self.et = denoise_single_step(self.state, self.model, self.t, self.cls_fn, self.classes)
+            self.time_step_sequence.append(self.t.item())
+
+        # Finish the episode if denoising is done
+        done = self.current_step_num == self.target_steps - 1
+        # Calculate reward
+        reward, ssim, psnr = self.calculate_reward(done)
+        
+        if done:
+            self.runner.save_img(self.x0_t, self.img_idx_so_far)
+            self.img_idx_so_far += 1 if self.img_idx_so_far < len(self.val_loader.dataset) - 1 else 0
+            
+        info = {
+            'ddim_t': self.uniform_steps[self.current_step_num],
+            't': self.t,
+            'reward': reward,
+            'ssim': ssim,
+            'psnr': psnr,
+            'time_step_sequence': self.time_step_sequence,
+            'action_sequence': self.action_sequence,
+            'threshold': self.final_threshold,
+        }
+
+        observation = {
+            "image": self.x0_t[0].cpu(),  
+            "value": np.array([self.t])
+        }
+
+        self.current_step_num += 1
+
+        return observation, reward, done, truncate, info
 
     def _load_next_image(self):
         self.GT_image, self.classes = next(self.data_iter)
@@ -171,76 +204,6 @@ class EvalDiffusionEnv(gym.Env):
             self.cls_fn,
             self.classes,
         )
-
-    def step(self, action):
-        truncate = self.current_step_num >= self.max_steps
-
-        # Denoise current image at time t
-        interval = self.interval
-        if self.episode_init:
-            # Randomly pick last T in a certain range
-            last_T = torch.randint(low=800, high=1000, size=(1,)).item()
-            self.state = initialize_generalized_steps(
-                self.current_noise_image.to("cuda"),
-                last_T,
-                self.runner.betas,
-                self.H_funcs,
-                self.y_0,
-                self.sigma_0,
-            )
-            self.episode_init = False
-            self.t = last_T
-            # print("type of self.t: ", type(self.t))
-
-        self._update_sequences(self.t, action)
-        next_t = self._calculate_time_step(action, interval)
-        self.current_noise_image = self._perform_denoising_single_step(
-            self.state, self.t, next_t
-        )
-
-        # DDRM
-        ddim_t = self.ddim_seq[self.current_step_num]
-        # Finish the episode if denoising is done
-        done = self.current_step_num == self.target_steps - 1
-        # Increase number of steps
-        self.current_step_num += 1
-        # Calculate reward
-        reward, ssim, ddim_ssim = self.calculate_reward(done)
-        info = self._create_info_dict(ddim_t, self.t, reward, ssim, ddim_ssim)
-        # print('info:', info)
-        observation = {"image": self.current_noise_image.squeeze(0), "value": self.t}
-
-        # Save the image if done
-        if done and self.img_save_path is not None:
-            # print(self.current_image)
-            if not os.path.exists(self.img_save_path):
-                os.makedirs(self.img_save_path)
-            # print(info['time_step_sequence'])
-            # print("timesteps", info['time_step_sequence'])
-            images = (self.current_noise_image / 2 + 0.5).clamp(0, 1)
-            images = images.cpu().permute(0, 2, 3, 1).numpy()[0]
-            images = Image.fromarray((images * 255).round().astype("uint8"))
-            filename = os.path.join(
-                self.img_save_path, f"img_{self.sample_number_count}.png"
-            )
-            images.save(filename)
-            # print(f"Image saved at {filename}")
-            self.sample_number_count += 1
-        return observation, reward, done, truncate, info
-
-    def _calculate_time_step(self, action, interval):
-        action = action.item()
-
-        t = int(
-            torch.round(
-                torch.tensor(self.ddim_seq[self.current_step_num] - interval * action)
-            )
-        )
-        # t = int(torch.round(torch.tensor(self.t - interval * action)))
-        # print("t = ", t)
-        final_t = max(0, min(t, 999))
-        # print("final_t = ", final_t)
-        return torch.tensor(final_t)
 
     def _update_sequences(self, t, action):
         self.time_step_sequence.append(t.item() if type(t) == torch.Tensor else t)
@@ -278,7 +241,16 @@ class EvalDiffusionEnv(gym.Env):
 
     def calculate_reward(self, done):
         reward = 0
-        return 0, 0, 0
+        x = inverse_data_transform(self.config, self.x0_t).to(self.runner.device)
+        orig = inverse_data_transform(self.config, self.GT_image).to(self.runner.device)
+        mse = torch.mean((x - orig) ** 2)
+        psnr = 10 * torch.log10(1 / mse).item()
+        ssim = structural_similarity(x.cpu().numpy(), orig.cpu().numpy(), win_size=21, channel_axis=0, data_range=1.0)
+        # Sparse reward (SSIM)
+        if done and ssim > self.final_threshold:
+            reward += 1
+
+        return reward, ssim, psnr
 
     def get_sample_number(self):
         return self.sample_number_count

@@ -20,13 +20,35 @@ class DiffusionEnv(gym.Env):
     def __init__(self, runner, model, cls, target_steps=10, max_steps=100, agent1=None):
         super(DiffusionEnv, self).__init__()
         
+        
+        # Model
+        self.last_T = 999
+        self.runner = runner
+        self.target_steps = target_steps
+        self.final_threshold = 0.9
+        val_loader, sigma_0, config, deg, H_funcs, model, idx_so_far, cls_fn = self.runner.sample(cls)
+        self.val_loader = val_loader
+        self.sigma_0 = sigma_0
+        self.config = config
+        self.deg = deg
+        self.H_funcs = H_funcs
+        self.model = model
+        self.model.to("cuda")
+        
+        self.idx_so_far = idx_so_far
+        self.cls_fn = cls_fn
+        self.valdata_len = self.runner.val_datalen
+        self.current_image_idx = 0
+        self.sample_size = config.data.image_size
+        self.batch_size = config.sampling.batch_size
+
+
         # RL Setting
         self.agent1 = agent1 # RL model from subtask 1
         self.target_steps = target_steps
         self.uniform_steps = [i for i in range(0, 999, 1000//self.target_steps)][::-1]    
         self.adjust = True if agent1 is not None else False    
 
-        self.sample_size = 256
         self.max_steps = max_steps
 
         # Count the number of steps
@@ -42,25 +64,6 @@ class DiffusionEnv(gym.Env):
             "value": Box(low=np.array([0]), high=np.array([999]), dtype=np.uint16)
         })
     
-        # Model
-        self.last_T = 999
-        self.runner = runner
-        self.target_steps = target_steps
-        self.final_threshold = 0.9
-        val_loader, sigma_0, config, deg, H_funcs, model, idx_so_far, cls_fn = self.runner.sample(cls)
-        self.val_loader = val_loader
-        self.sigma_0 = sigma_0
-        self.config = config
-        self.deg = deg
-        self.H_funcs = H_funcs
-        self.model = model
-        self.idx_so_far = idx_so_far
-        self.cls_fn = cls_fn
-        self.model.to("cuda")
-        self.valdata_len = self.runner.val_datalen
-        self.current_image_idx = 0
-        self.sample_size = config.data.image_size
-        self.batch_size = config.sampling.batch_size
 
         # ddim sequence
         skip = self.runner.num_timesteps // self.runner.args.timesteps
@@ -85,7 +88,6 @@ class DiffusionEnv(gym.Env):
                 "image": Box(
                     low=0,
                     high=255,
-                    # shape=(self.batch_size, 3*self.sample_size*self.sample_size),
                     shape=(3, self.sample_size, self.sample_size),
                     dtype=np.uint8,
                 ),
@@ -99,14 +101,10 @@ class DiffusionEnv(gym.Env):
         # pdb.set_trace()
 
     def seed(self, seed=None):
-        # self.np_random, seed = seeding.np_random(seed)
-        self.generator = torch.Generator(device="cuda").manual_seed(seed)
         np.random.seed(seed)
         random.seed(seed)
         torch.manual_seed(seed)
         torch.random.manual_seed(seed)
-        # print(f"Seed: {seed}")
-        # return [seed]
 
     def reset(self, seed=None, options=None):
         self.episode_init = True
@@ -123,7 +121,7 @@ class DiffusionEnv(gym.Env):
         self.GT_image, self.classes = next(self.data_iter)
 
         # noise and low level image y_0, 
-        self.noise_image, y_0 = self.runner.sample_init(
+        self.noise_image, self.y_0 = self.runner.sample_init(
             self.GT_image,
             self.sigma_0,
             self.config,
@@ -134,17 +132,8 @@ class DiffusionEnv(gym.Env):
             self.cls_fn,
             self.classes,
         )
-        self.y_0 = y_0
 
         # Initialization, extract degradation information from y_0 sigma 0, and H_func
-        self.state = initialize_generalized_steps(
-                self.noise_image.to("cuda"),
-                self.last_T,
-                self.runner.betas,
-                self.H_funcs,
-                self.y_0,
-                self.sigma_0,
-            )
         """
         state = {
                     "x": x, (mapping to y_0 space)
@@ -156,16 +145,18 @@ class DiffusionEnv(gym.Env):
                     "large_singulars_index": large_singulars_index,
                 }
         """
-
-        # Prepare Data (x0_t not sure)
-        self.x = self.noise_image
+        self.state = initialize_generalized_steps(
+                self.noise_image.to("cuda"),
+                self.last_T,
+                self.runner.betas,
+                self.H_funcs,
+                self.y_0,
+                self.sigma_0,
+            )
         self.x0_t = self.state['x']
 
-
-        ddim_x = self.x.clone()
-        # t of ddim is set
         self.ddim_state = initialize_generalized_steps(
-            ddim_x.to("cuda"),
+            self.noise_image.to("cuda"),
             self.ddim_seq[0],
             self.runner.betas,
             self.H_funcs,
@@ -197,16 +188,17 @@ class DiffusionEnv(gym.Env):
             self.action_sequence.append(action.item())
 
             start_t = 50 * (1+action) - 1
-            t = torch.tensor(int(max(0, min(start_t, 999))))
-            self.interval = int(t / (self.target_steps - 1)) 
+            next_t = torch.tensor(int(max(0, min(start_t, 999))))
+            self.interval = int(next_t / (self.target_steps - 1)) 
             self.state['x'] = denoise_guided_addnoise(self.state, self.at, self.et, self.x0_t, self.H_funcs, self.sigma_0, self.runner.args)
+            
             # Next round
-            self.t = t
+            self.t = next_t
             self.x0_t, self.at, self.et = denoise_single_step(self.state, self.model, self.t, self.cls_fn, self.classes)
-            self.time_step_sequence.append(t.item())
+            self.time_step_sequence.append(self.t.item())
             observation = {
                     "image": self.x0_t.cpu(),
-                    "value": np.array([t])
+                    "value": np.array([self.t])
                 }
             self.current_step_num += 1
 
