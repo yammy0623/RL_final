@@ -5,7 +5,7 @@ from stable_baselines3.common.vec_env import (
     # VecVideoRecorder,
     # SubprocVecEnv,
 )
-from stable_baselines3 import SAC
+from stable_baselines3 import SAC, A2C
 from gymnasium import spaces
 import torch as th
 import torch.nn as nn
@@ -15,7 +15,7 @@ import warnings
 import gymnasium as gym
 from gymnasium.envs.registration import register
 import torch.nn.functional as F
-from func import MD_SAC
+from func import MD_SAC, PPO, A2C
 import math
 
 import os
@@ -37,8 +37,6 @@ def make_env(my_config):
     def _init():
         config = {
             "runner": my_config["runner"],
-            "model": my_config["diff_model"],
-            "cls": my_config["diff_cls"],
             "target_steps": my_config["target_steps"],
             "max_steps": my_config["max_steps"],
             "agent1": my_config["agent1"],
@@ -55,11 +53,12 @@ class CustomCNN(BaseFeaturesExtractor):
         This corresponds to the number of unit for the last layer.
     """
 
-    def __init__(self, observation_space: spaces.Box, features_dim: int = 256):
+    def __init__(self, observation_space: spaces.Box, features_dim: int = 128, use_scale_shift_norm: bool = True):
         super().__init__(observation_space, features_dim)
 
         n_input_channels = observation_space["image"].shape[0]
         n_input_channels = 3
+        self.use_scale_shift_norm = use_scale_shift_norm
         self.cnn = nn.Sequential(
             nn.Conv2d(n_input_channels, 32, kernel_size=3, stride=1, padding=0),
             nn.ReLU(),
@@ -138,13 +137,13 @@ def eval(env, rl_model, eval_episode_num):
     
     return avg_reward, avg_ssim, avg_psnr, ddim_ssim, ddim_psnr, info['time_step_sequence'], info['action_sequence'], avg_reward_t, avg_start_t
 
-def train(eval_env, rl_model, config, second_stage=False):
+def train(eval_env, rl_model, config, epoch_num, second_stage=False):
     """Train agent using SB3 algorithm and my_config"""
     current_best_psnr = 0
     current_best_ssim = 0
 
 
-    for epoch in range(config["epoch_num"]):
+    for epoch in range(epoch_num):
 
         # Uncomment to enable wandb logging
         if LOG:
@@ -226,24 +225,45 @@ def main():
     # TODO: change to read yaml
     args, config = parse_args_and_config()
     runner = Diffusion(args, config)
-    diff_model, cls = runner.get_model()
+
+    # my_config = {
+    #     "algorithm": MD_SAC,
+    #     "buffer_size": 10000, # for SAC only, default is 1e6.
+    #     "num_train_envs": 16,
+    #     "policy_network": "MultiInputPolicy",
+    #     "epoch_num": 500,
+    #     "first_stage_epoch_num": 50,
+    #     "timesteps_per_epoch": 100,
+    #     "eval_episode_num": 16,
+    #     "learning_rate": 1e-4,
+    #     "policy_kwargs": policy_kwargs,
+    #     "runner": runner,
+    #     "target_steps": args.target_steps,
+    #     "max_steps": 100,
+    # }
 
     my_config = {
-        "algorithm": MD_SAC,
-        "buffer_size": 100000, # for SAC only, default is 1e6.
-        "num_train_envs": 16,
+        "run_id": "SAC_v1",
+
+        "algorithm": A2C,
         "policy_network": "MultiInputPolicy",
+        "save_path": "model/sample_model",
+        "first_stage_epoch_num": 50,
+
         "epoch_num": 500,
         "timesteps_per_epoch": 100,
-        "eval_episode_num": 16,
+        "eval_episode_num": 10,
         "learning_rate": 1e-4,
         "policy_kwargs": policy_kwargs,
-        "runner": runner,
-        "diff_model": diff_model,
-        "diff_cls": cls,
-        "target_steps": args.target_steps,
+
+        "DM_model": "model/ddpm_ema_cifar10",
+        "target_steps": 10,
         "max_steps": 100,
+
+        "num_train_envs": 8,
+        "runner": runner,
     }
+
     my_config['run_id'] = f'SR_2agent_A2C_env_{my_config["num_train_envs"]}_steps_{my_config["target_steps"]}'
     my_config['save_path'] = f'model/SR_2agent_A2C_{my_config["target_steps"]}'
 
@@ -257,8 +277,6 @@ def main():
 
     config = {
             "runner": my_config["runner"],
-            "model": my_config["diff_model"],
-            "cls": my_config["diff_cls"],
             "target_steps": my_config["target_steps"],
             "max_steps": my_config["max_steps"],
             "agent1": None,
@@ -282,7 +300,7 @@ def main():
         tensorboard_log=my_config["run_id"],
         learning_rate=my_config["learning_rate"],
         policy_kwargs=my_config["policy_kwargs"],
-        buffer_size=my_config["buffer_size"]
+        # buffer_size=my_config["buffer_size"]
     )
 
     if args.second_stage == False:

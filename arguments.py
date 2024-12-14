@@ -53,6 +53,9 @@ def parse_args_and_config():
         help="No interaction. Suitable for Slurm Job launcher",
     )
     parser.add_argument(
+        "--target_steps", type=int, default=10, help="The target step of the model"
+    )
+    parser.add_argument(
         "--timesteps", type=int, default=1000, help="number of steps involved"
     )
     parser.add_argument("--deg", type=str, required=True, help="Degradation")
@@ -61,6 +64,9 @@ def parse_args_and_config():
     parser.add_argument("--etaB", type=float, default=1, help="Eta_b (before)")
     parser.add_argument("--subset_start", type=int, default=-1)
     parser.add_argument("--subset_end", type=int, default=-1)
+    parser.add_argument("--input_root", type=str, default="/disk_195a/qiannnhui", help="The root folder of input images")
+    parser.add_argument("--second_stage", action="store_true", help="Whether to run the second stage")
+    parser.add_argument("--RL_algorithm", type=str, default="SAC", help="The RL algorithm to use")
 
     args = parser.parse_args()
     args.log_path = os.path.join(args.exp, "logs", args.doc)

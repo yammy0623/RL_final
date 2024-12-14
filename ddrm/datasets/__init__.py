@@ -135,15 +135,17 @@ def get_dataset(args, config):
     
     elif config.data.dataset == "CelebA_HQ" or config.data.dataset == 'FFHQ':
         if config.data.out_of_dist:
-            dataset = torchvision.datasets.ImageFolder(
-                os.path.join(args.exp, "datasets", "ood_celeba"),
+            dataset = torchvision.datasets.ImageFolder( 
+                # os.path.join(args.exp, "datasets", "ood_celeba"),
+                os.path.join(args.input_root, "ood_celeba"),
                 transform=transforms.Compose([transforms.Resize([config.data.image_size, config.data.image_size]),
                                               transforms.ToTensor()])
             )
             test_dataset = dataset
         else:
             dataset = torchvision.datasets.ImageFolder(
-                os.path.join(args.exp, "datasets", "celeba_hq"),
+                # os.path.join(args.exp, "datasets", "celeba_hq"),
+                os.path.join(args.input_root, "celeba_hq"),
                 transform=transforms.Compose([transforms.Resize([config.data.image_size, config.data.image_size]),
                                               transforms.ToTensor()])
             )

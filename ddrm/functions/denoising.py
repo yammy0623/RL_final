@@ -226,6 +226,7 @@ def denoise_single_step(state, model, t, cls_fn=None, classes=None):
         x = state["x"]
         xt = x.to('cuda')
         t = torch.tensor([t]).to(x.device)
+        b = state["b"]
         at = compute_alpha(b, t.long())
         if cls_fn == None:
             et = model(xt, t)
@@ -250,9 +251,9 @@ def denoise_guided_addnoise(state, next_t, at, et, x0_t, H_funcs, sigma_0, args)
         Sig_inv_U_t_y = state["Sig_inv_U_t_y"]
         U_t_y = state["U_t_y"]
         singulars = state["singulars"]
-        etaA = args.etaA
+        etaA = args.eta
         etaB = args.etaB
-        etaC = args.etaC
+        etaC = args.eta
         #variational inference conditioned on y
         next_t = torch.tensor([next_t]).to(x.device)
         at_next = compute_alpha(b, next_t.long())
@@ -261,7 +262,7 @@ def denoise_guided_addnoise(state, next_t, at, et, x0_t, H_funcs, sigma_0, args)
         xt_mod = xt / at.sqrt()[0, 0, 0, 0]
         V_t_x = H_funcs.Vt(xt_mod)
         SVt_x = (V_t_x * Sigma)[:, :U_t_y.shape[1]]
-        V_t_x0 = H_funcs.Vt(x0_t)
+        V_t_x0 = H_funcs.Vt(x0_t).to(xt.device)
         SVt_x0 = (V_t_x0 * Sigma)[:, :U_t_y.shape[1]]
 
         falses = torch.zeros(V_t_x0.shape[1] - singulars.shape[0], dtype=torch.bool, device=xt.device)

@@ -13,14 +13,14 @@ import random
 # DDRM
 from ddrm.datasets import get_dataset, data_transform, inverse_data_transform
 from ddrm.functions.denoising import initialize_generalized_steps, denoise_single_step, denoise_guided_addnoise
-from skimage.metrics import structural_similarity
 import pdb 
-
+import copy
 class DiffusionEnv(gym.Env):
-    def __init__(self, runner, model, cls, target_steps=10, max_steps=100, agent1=None):
+    def __init__(self, runner, target_steps=10, max_steps=100, agent1=None):
         super(DiffusionEnv, self).__init__()
         
-        
+        model, cls = runner.get_model()
+
         # Model
         self.last_T = 999
         self.runner = runner
@@ -153,7 +153,9 @@ class DiffusionEnv(gym.Env):
                 self.y_0,
                 self.sigma_0,
             )
-        self.x0_t = self.state['x']
+        # self.x0_t = self.state['x']
+        self.t = self.ddim_seq[0]
+        self.x0_t, self.at, self.et = denoise_single_step(self.state, self.model, self.t, self.cls_fn, self.classes)
 
         self.ddim_state = initialize_generalized_steps(
             self.noise_image.to("cuda"),
@@ -176,7 +178,13 @@ class DiffusionEnv(gym.Env):
         ddim_x = inverse_data_transform(self.config, ddim_x0_t).to(self.runner.device)
         ddim_mse = torch.mean((ddim_x - orig) ** 2)
         self.ddim_psnr = 10 * torch.log10(1 / ddim_mse).item()
-        self.ddim_ssim = structural_similarity(ddim_x.cpu().numpy(), orig.cpu().numpy(), win_size=21, channel_axis=0, data_range=1.0)
+        self.ddim_ssim = structural_similarity(
+            ddim_x.squeeze(0).cpu().numpy(),
+            orig.squeeze(0).cpu().numpy(),
+            win_size=21,
+            channel_axis=0,
+            data_range=1.0
+        )
         observation = {
             "image": torch.tensor(self.x0_t).squeeze(0).cpu().numpy(),
             "value": np.array([self.last_T]),
@@ -190,7 +198,7 @@ class DiffusionEnv(gym.Env):
             start_t = 50 * (1+action) - 1
             next_t = torch.tensor(int(max(0, min(start_t, 999))))
             self.interval = int(next_t / (self.target_steps - 1)) 
-            self.state['x'] = denoise_guided_addnoise(self.state, self.at, self.et, self.x0_t, self.H_funcs, self.sigma_0, self.runner.args)
+            self.state['x'] = denoise_guided_addnoise(self.state, next_t, self.at, self.et, self.x0_t, self.H_funcs, self.sigma_0, self.runner.args)
             
             # Next round
             self.t = next_t
@@ -229,13 +237,13 @@ class DiffusionEnv(gym.Env):
                 start_t = 50 * (1+action) - 1
                 next_t = torch.tensor(int(max(0, min(start_t, 999))))
                 self.interval = int(next_t / (self.target_steps - 1)) 
-                self.state['x'] = denoise_guided_addnoise(self.state, self.at, self.et, self.x0_t, self.H_funcs, self.sigma_0, self.runner.args)
+                self.state['x'] = denoise_guided_addnoise(self.state, next_t, self.at, self.et, self.x0_t, self.H_funcs, self.sigma_0, self.runner.args)
                 self.action_sequence.append(action.item())
             else: # Second subtask
                 next_t = self.t - self.interval - self.interval * action
                 next_t = torch.tensor(int(max(0, min(next_t, 999))))
                 self.interval = int(next_t / (self.target_steps - self.current_step_num - 1)) if (self.target_steps - self.current_step_num - 1) != 0 else self.interval
-                self.state['x'] = denoise_guided_addnoise(self.state, self.at, self.et, self.x0_t, self.H_funcs, self.sigma_0, self.runner.args)
+                self.state['x'] = denoise_guided_addnoise(self.state, next_t, self.at, self.et, self.x0_t, self.H_funcs, self.sigma_0, self.runner.args)
                 self.action_sequence.append(action.item())
 
         
@@ -247,12 +255,13 @@ class DiffusionEnv(gym.Env):
         self.uniform_x0_t = self.x0_t.clone()
         uniform_at = self.at.clone()
         uniform_et = self.et.clone()
-        self.uniform_state = self.state.clone()
+        # self.uniform_state = self.state.clone()
+        self.uniform_state = copy.deepcopy(self.state)
 
         for i in range(self.target_steps - self.current_step_num - 1): 
             uniform_t = torch.tensor(int(self.t - self.interval - self.interval * i))
             uniform_t = torch.tensor(max(0, min(uniform_t, 999)))
-            self.uniform_state['x'] = denoise_guided_addnoise(self.state,  uniform_at, uniform_et, self.uniform_x0_t, self.H_funcs, self.sigma_0, self.runner.args)
+            self.uniform_state['x'] = denoise_guided_addnoise(self.state, uniform_t, uniform_at, uniform_et, self.uniform_x0_t, self.H_funcs, self.sigma_0, self.runner.args)
             self.uniform_x0_t, uniform_at, uniform_et = denoise_single_step(self.uniform_state, self.model, uniform_t, self.cls_fn, self.classes)
 
 
@@ -272,7 +281,7 @@ class DiffusionEnv(gym.Env):
         }
 
         observation = {
-            "image":  self.current_noise_image.cpu(),  
+            "image":  self.x0_t[0].cpu(),  
             "value": np.array([self.t])
         }
         self.current_step_num += 1
@@ -333,8 +342,14 @@ class DiffusionEnv(gym.Env):
             x = inverse_data_transform(self.config, self.uniform_x0_t).to(self.runner.device)
         mse = torch.mean((x - orig) ** 2)
         psnr = 10 * torch.log10(1 / mse).item()
-        ssim = structural_similarity(x.cpu().numpy(), orig.cpu().numpy(), win_size=21, channel_axis=0, data_range=1.0)
-        
+        # ssim = structural_similarity(x.cpu().numpy(), orig.cpu().numpy(), win_size=21, channel_axis=0, data_range=1.0)
+        ssim = structural_similarity(
+            x.squeeze(0).cpu().numpy(),
+            orig.squeeze(0).cpu().numpy(),
+            win_size=21,
+            channel_axis=0,
+            data_range=1.0
+        )        
         # Intermediate reward (Percentage of temporary improvement)
         if not done and psnr > self.ddim_psnr and ssim > self.ddim_ssim:
             reward += 0.5/self.target_steps*psnr/self.ddim_psnr 

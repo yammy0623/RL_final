@@ -199,7 +199,7 @@ class SuperResolution(H_functions):
         patches = vec.clone().reshape(vec.shape[0], self.channels, self.img_dim, self.img_dim)
         patches = patches.unfold(2, self.ratio, self.ratio).unfold(3, self.ratio, self.ratio)
         unfold_shape = patches.shape
-        patches = patches.contiguous().reshape(vec.shape[0], self.channels, -1, self.ratio**2)
+        patches = patches.contiguous().reshape(vec.shape[0], self.channels, -1, self.ratio**2).to(self.Vt_small.device)
         #multiply each by the small V transposed
         patches = torch.matmul(self.Vt_small, patches.reshape(-1, self.ratio**2, 1)).reshape(vec.shape[0], self.channels, -1, self.ratio**2)
         #reorder the vector to have the first entry first (because singulars are ordered descendingly)
