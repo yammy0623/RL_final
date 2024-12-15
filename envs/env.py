@@ -16,10 +16,11 @@ from ddrm.functions.denoising import initialize_generalized_steps, denoise_singl
 import pdb 
 import copy
 class DiffusionEnv(gym.Env):
-    def __init__(self, runner, target_steps=10, max_steps=100, agent1=None):
+    def __init__(self, runner, target_steps=10, max_steps=100):
         super(DiffusionEnv, self).__init__()
         
         model, cls = runner.get_model()
+        self.final_threshold = 0.9
 
         # Model
         self.last_T = 999
@@ -44,19 +45,16 @@ class DiffusionEnv(gym.Env):
 
 
         # RL Setting
-        self.agent1 = agent1 # RL model from subtask 1
         self.target_steps = target_steps
-        self.uniform_steps = [i for i in range(0, 999, 1000//self.target_steps)][::-1]    
-        self.adjust = True if agent1 is not None else False    
 
         self.max_steps = max_steps
 
         # Count the number of steps
         self.current_step_num = 0 
-        if self.adjust:
-            self.action_space = gym.spaces.Box(low=-5, high=5)
-        else:
-            self.action_space = spaces.Discrete(20)
+        self.action_space = gym.spaces.Box(low=-5, high=5)
+        self.uniform_steps = [i for i in range(0, 999, 1000//self.target_steps)][::-1]    
+        # else:
+        #     self.action_space = spaces.Discrete(20)
 
         # Define the action and observation space
         self.observation_space = Dict({
@@ -167,7 +165,7 @@ class DiffusionEnv(gym.Env):
         )
         ddim_x0_t = self.ddim_state['x']
 
-        # Precoputing DDRM uniform seq
+        # Precomputing DDRM uniform seq
         with torch.no_grad():
             for i in range(self.target_steps):
                 ddim_t = torch.tensor(self.uniform_steps[i])
@@ -177,7 +175,6 @@ class DiffusionEnv(gym.Env):
         orig = inverse_data_transform(self.config, self.GT_image).to(self.runner.device)
         ddim_x = inverse_data_transform(self.config, ddim_x0_t).to(self.runner.device)
         ddim_mse = torch.mean((ddim_x - orig) ** 2)
-        self.ddim_psnr = 10 * torch.log10(1 / ddim_mse).item()
         self.ddim_ssim = structural_similarity(
             ddim_x.squeeze(0).cpu().numpy(),
             orig.squeeze(0).cpu().numpy(),
@@ -191,24 +188,24 @@ class DiffusionEnv(gym.Env):
         }
 
         # TODO START HERE
-        if self.adjust: # Second subtask
-            action, _state = self.agent1.predict(observation, deterministic=True)
-            self.action_sequence.append(action.item())
+        # if self.adjust: # Second subtask
+        #     action, _state = self.agent1.predict(observation, deterministic=True)
+        #     self.action_sequence.append(action.item())
 
-            start_t = 50 * (1+action) - 1
-            next_t = torch.tensor(int(max(0, min(start_t, 999))))
-            self.interval = int(next_t / (self.target_steps - 1)) 
-            self.state['x'] = denoise_guided_addnoise(self.state, next_t, self.at, self.et, self.x0_t, self.H_funcs, self.sigma_0, self.runner.args)
+        #     start_t = 50 * (1+action) - 1
+        #     next_t = torch.tensor(int(max(0, min(start_t, 999))))
+        #     self.interval = int(next_t / (self.target_steps - 1)) 
+        #     self.state['x'] = denoise_guided_addnoise(self.state, next_t, self.at, self.et, self.x0_t, self.H_funcs, self.sigma_0, self.runner.args)
             
-            # Next round
-            self.t = next_t
-            self.x0_t, self.at, self.et = denoise_single_step(self.state, self.model, self.t, self.cls_fn, self.classes)
-            self.time_step_sequence.append(self.t.item())
-            observation = {
-                    "image": self.x0_t.cpu(),
-                    "value": np.array([self.t])
-                }
-            self.current_step_num += 1
+        #     # Next round
+        #     self.t = next_t
+        #     self.x0_t, self.at, self.et = denoise_single_step(self.state, self.model, self.t, self.cls_fn, self.classes)
+        #     self.time_step_sequence.append(self.t.item())
+        #     observation = {
+        #             "image": self.x0_t.cpu(),
+        #             "value": np.array([self.t])
+        #         }
+        #     self.current_step_num += 1
 
         torch.cuda.empty_cache()  # Clear GPU cache
             
@@ -233,13 +230,13 @@ class DiffusionEnv(gym.Env):
         truncate = self.current_step_num >= self.max_steps
         # RL
         with torch.no_grad():
-            if self.adjust == False:
-                start_t = 50 * (1+action) - 1
+            if self.current_step_num == 0:
+                start_t = int(self.ddim_seq[self.current_step_num] - self.interval * action)
                 next_t = torch.tensor(int(max(0, min(start_t, 999))))
                 self.interval = int(next_t / (self.target_steps - 1)) 
                 self.state['x'] = denoise_guided_addnoise(self.state, next_t, self.at, self.et, self.x0_t, self.H_funcs, self.sigma_0, self.runner.args)
                 self.action_sequence.append(action.item())
-            else: # Second subtask
+            else:
                 next_t = self.t - self.interval - self.interval * action
                 next_t = torch.tensor(int(max(0, min(next_t, 999))))
                 self.interval = int(next_t / (self.target_steps - self.current_step_num - 1)) if (self.target_steps - self.current_step_num - 1) != 0 else self.interval
@@ -266,16 +263,14 @@ class DiffusionEnv(gym.Env):
 
 
         # Finish the episode if denoising is done
-        done = (self.current_step_num == self.target_steps - 1) or not self.adjust
-        reward, ssim, psnr, ddim_ssim, ddim_psnr = self.calculate_reward(done)
+        done = (self.current_step_num == self.target_steps - 1)
+        reward, ssim, ddim_ssim = self.calculate_reward(done)
         info = {
             'ddim_t': self.uniform_steps[self.current_step_num],
             't': self.t,
             'reward': reward,
             'ssim': ssim,
-            'psnr': psnr,
             'ddim_ssim': ddim_ssim,
-            'ddim_psnr': ddim_psnr,
             'time_step_sequence': self.time_step_sequence,
             'action_sequence': self.action_sequence,
         }
@@ -288,19 +283,6 @@ class DiffusionEnv(gym.Env):
         torch.cuda.empty_cache()
         return observation, reward, done, truncate, info
 
-    # def _calculate_time_step_first(self, action):
-    #     start_t = 50 * (1 + action) - 1
-    #     t = torch.tensor(int(max(0, min(start_t, self.last_T))))
-    #     return t
-
-    # def _calculate_time_step_second(self, action):
-    #     t = self.t - self.interval - self.interval * action
-    #     t = torch.tensor(int(max(0, min(t, self.last_T))))
-    #     return t
-
-    # def _update_sequences(self, t, action):
-    #     self.time_step_sequence.append(t.item() if type(t) == torch.Tensor else t)
-    #     self.action_sequence.append(action.item())
 
     def _perform_denoising_single_step(self, state, t, next_t):
         with torch.no_grad():
@@ -336,12 +318,12 @@ class DiffusionEnv(gym.Env):
     def calculate_reward(self, done):
         reward = 0
         orig = inverse_data_transform(self.config, self.GT_image).to(self.runner.device)
-        if done and self.adjust:
+        if done:
             x = inverse_data_transform(self.config, self.x0_t).to(self.runner.device)
         else:
             x = inverse_data_transform(self.config, self.uniform_x0_t).to(self.runner.device)
         mse = torch.mean((x - orig) ** 2)
-        psnr = 10 * torch.log10(1 / mse).item()
+        # psnr = 10 * torch.log10(1 / mse).item()
         # ssim = structural_similarity(x.cpu().numpy(), orig.cpu().numpy(), win_size=21, channel_axis=0, data_range=1.0)
         ssim = structural_similarity(
             x.squeeze(0).cpu().numpy(),
@@ -351,22 +333,18 @@ class DiffusionEnv(gym.Env):
             data_range=1.0
         )        
         # Intermediate reward (Percentage of temporary improvement)
-        if not done and psnr > self.ddim_psnr and ssim > self.ddim_ssim:
-            reward += 0.5/self.target_steps*psnr/self.ddim_psnr 
+        if not done and ssim > self.ddim_ssim:
+            # reward += 0.5/self.target_steps*psnr/self.ddim_psnr 
             reward += 0.5/self.target_steps*ssim/self.ddim_ssim
         
         # Sparse reward (Percentage of final improvement)
-        if done and psnr > self.ddim_psnr and ssim > self.ddim_ssim:
-            reward += 0.5*psnr/self.ddim_psnr
+        if done and ssim > self.ddim_ssim:
+            # reward += 0.5*psnr/self.ddim_psnr
             reward += 0.5*ssim/self.ddim_ssim
 
 
-        return reward, ssim, psnr, self.ddim_ssim, self.ddim_psnr
+        return reward, ssim, self.ddim_ssim
 
     def render(self, mode="human", close=False):
         # This could visualize the current state if necessary
         pass
-
-    def set_adjust(self, adjust):
-        self.adjust = adjust
-        print(f"Set adjust to {adjust}")
