@@ -22,8 +22,9 @@ import os
 
 from ddrm.runners.diffusion import Diffusion
 from arguments import parse_args_and_config
-from torch.cuda.amp import autocast
-
+from torch.cuda.amp import autocast, GradScaler
+# from new_A2C_model import MixedPrecisionA2C
+scaler = GradScaler()
 
 LOG = False
 warnings.filterwarnings("ignore")
@@ -157,12 +158,11 @@ def train(eval_env, rl_model, config, epoch_num, args, second_stage=False):
                 ),
             )
         else:
-            with autocast():
-                rl_model.learn(
-                    total_timesteps=config["timesteps_per_epoch"],
-                    reset_num_timesteps=False,
-                    progress_bar=True,
-                )
+            rl_model.learn(
+                total_timesteps=config["timesteps_per_epoch"],
+                reset_num_timesteps=False,
+                progress_bar=True,
+            )
 
         th.cuda.empty_cache()  # Clear GPU cache
         
@@ -302,6 +302,7 @@ def main():
         tensorboard_log=my_config["run_id"],
         learning_rate=my_config["learning_rate"],
         policy_kwargs=my_config["policy_kwargs"],
+        # device="cpu"
         # buffer_size=my_config["buffer_size"]
     )
 

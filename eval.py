@@ -31,8 +31,6 @@ def make_env(my_config):
     def _init():
         config = {
             "runner": my_config["runner"],
-            "model": my_config["diff_model"],
-            "cls": my_config["diff_cls"],
             "target_steps": my_config["target_steps"],
             "max_steps": my_config["max_steps"],
             "agent1": my_config["agent1"],
@@ -75,11 +73,11 @@ def main():
     my_config = {
         "algorithm": A2C,
         "target_steps": args.target_steps,
-        "threshold": 0.9,
         "policy_network": "MultiInputPolicy",
         "policy_kwargs": policy_kwargs,
         "max_steps": 100,
         "num_eval_envs": 1,
+        "runner": runner,
         "eval_num": len(runner.test_dataset),
     }
     my_config['save_path'] = f'model/{args.eval_model_name}/best'
@@ -91,8 +89,6 @@ def main():
 
     config = {
             "runner": my_config["runner"],
-            "model": my_config["diff_model"],
-            "cls": my_config["diff_cls"],
             "target_steps": my_config["target_steps"],
             "max_steps": my_config["max_steps"],
             "agent1": agent1,

@@ -78,20 +78,6 @@ class DiffusionEnv(gym.Env):
         self.max_steps = max_steps
         self.current_step_num = 0
 
-
-        # Define the action and observation space
-        self.action_space = gym.spaces.Box(low=-5.0, high=5.0, shape=(1,))
-        self.observation_space = Dict(
-            {
-                "image": Box(
-                    low=0,
-                    high=255,
-                    shape=(3, self.sample_size, self.sample_size),
-                    dtype=np.uint8,
-                ),
-                "value": Box(low=np.array([0]), high=np.array([999]), dtype=np.uint16),
-            }
-        )
         # Initialize the random seed
         self.seed(232)
         self.episode_init = True
@@ -186,7 +172,7 @@ class DiffusionEnv(gym.Env):
         del ddim_x, ddim_x0_t, ddim_mse, orig
         gc.collect()
         observation = {
-            "image": torch.tensor(self.x0_t).squeeze(0).cpu().numpy(),
+            "image": self.x0_t[0].cpu(),
             "value": np.array([self.last_T]),
         }
 
@@ -205,7 +191,7 @@ class DiffusionEnv(gym.Env):
             self.x0_t, self.at, self.et = denoise_single_step(self.state, self.model, self.t, self.cls_fn, self.classes)
             self.time_step_sequence.append(self.t.item())
             observation = {
-                    "image": self.x0_t.cpu(),
+                    "image": self.x0_t[0].cpu(),
                     "value": np.array([self.t])
                 }
 
@@ -285,9 +271,12 @@ class DiffusionEnv(gym.Env):
         }
 
         observation = {
-            "image":  self.x0_t.cpu(),  
+            "image":  self.x0_t[0].cpu(),  
             "value": np.array([self.t])
         }
+        if done:
+            del self.x0_t, self.state
+            gc.collect()
         self.current_step_num += 1
         torch.cuda.empty_cache()
         return observation, reward, done, truncate, info

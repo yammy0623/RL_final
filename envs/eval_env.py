@@ -22,11 +22,8 @@ class EvalDiffusionEnv(gym.Env):
     def __init__(
         self,
         runner,
-        model,
-        cls,
         target_steps=10,
         max_steps=100,
-        threshold = 0.8,
         agent1=None,
     ):
         super(EvalDiffusionEnv, self).__init__()
@@ -36,9 +33,10 @@ class EvalDiffusionEnv(gym.Env):
         # Model
         self.last_T = 999
         self.runner = runner
+        model, cls = runner.get_model()
         self.target_steps = target_steps
         self.final_threshold = 0.9
-        val_loader, sigma_0, config, deg, H_funcs, model, idx_so_far, cls_fn = self.runner.sample(cls)
+        _, val_loader, sigma_0, config, deg, H_funcs, model, idx_so_far, cls_fn = self.runner.sample(cls)
         self.val_loader = val_loader
         self.sigma_0 = sigma_0
         self.config = config
@@ -60,6 +58,14 @@ class EvalDiffusionEnv(gym.Env):
         self.uniform_steps = [i for i in range(0, 999, 1000//self.target_steps)][::-1]    
         self.adjust = True if agent1 is not None else False  
         
+        skip = self.runner.num_timesteps // self.runner.args.timesteps
+        self.interval = self.runner.num_timesteps // target_steps
+        # seq = range(self.runner.num_timesteps, 0, -1*skip)
+        seq = range(0, self.runner.num_timesteps, skip)
+        seq_next = [-1] + list(seq[:-1])
+
+        self.ddim_seq = list(reversed(seq))
+        self.ddim_seq_next = list(reversed(seq_next))
         self.max_steps = max_steps
 
         # Count the number of steps
@@ -118,7 +124,9 @@ class EvalDiffusionEnv(gym.Env):
                 self.y_0,
                 self.sigma_0,
             )
-        self.x0_t = self.state['x']
+        # self.x0_t = self.state['x']
+        self.t = self.ddim_seq[0]
+        self.x0_t, self.at, self.et = denoise_single_step(self.state, self.model, self.t, self.cls_fn, self.classes)
 
         observation = {
             "image": self.x0_t[0].cpu(),  
@@ -131,7 +139,7 @@ class EvalDiffusionEnv(gym.Env):
             start_t = 50 * (1+action) - 1
             next_t = torch.tensor(int(max(0, min(start_t, 999))))
             self.interval = int(next_t / (self.target_steps - 1))
-            self.state['x'] = denoise_guided_addnoise(self.state, self.at, self.et, self.x0_t, self.H_funcs, self.sigma_0, self.runner.args)
+            self.state['x'] = denoise_guided_addnoise(self.state, next_t, self.at, self.et, self.x0_t, self.H_funcs, self.sigma_0, self.runner.args)
             self.action_sequence.append(action.item())
             
             # Next round
@@ -155,7 +163,7 @@ class EvalDiffusionEnv(gym.Env):
             next_t = self.t - self.interval - self.interval * action
             next_t = torch.tensor(int(max(0, min(next_t, 999))))
             self.interval = int(next_t / (self.target_steps - self.current_step_num - 1)) if (self.target_steps - self.current_step_num - 1) != 0 else self.interval
-            self.state['x'] = denoise_guided_addnoise(self.state, self.at, self.et, self.x0_t, self.H_funcs, self.sigma_0, self.runner.args)
+            self.state['x'] = denoise_guided_addnoise(self.state, next_t, self.at, self.et, self.x0_t, self.H_funcs, self.sigma_0, self.runner.args)
             self.action_sequence.append(action.item())
 
             self.t = next_t
@@ -245,7 +253,14 @@ class EvalDiffusionEnv(gym.Env):
         orig = inverse_data_transform(self.config, self.GT_image).to(self.runner.device)
         mse = torch.mean((x - orig) ** 2)
         psnr = 10 * torch.log10(1 / mse).item()
-        ssim = structural_similarity(x.cpu().numpy(), orig.cpu().numpy(), win_size=21, channel_axis=0, data_range=1.0)
+        # ssim = structural_similarity(x.cpu().numpy(), orig.cpu().numpy(), win_size=21, channel_axis=0, data_range=1.0)
+        ssim = structural_similarity(
+            x.squeeze(0).cpu().numpy(),
+            orig.squeeze(0).cpu().numpy(),
+            win_size=21,
+            channel_axis=0,
+            data_range=1.0
+        )
         # Sparse reward (SSIM)
         if done and ssim > self.final_threshold:
             reward += 1
