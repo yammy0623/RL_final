@@ -40,6 +40,7 @@ def make_env(my_config):
     
 def evaluation(env, model, eval_num=100):
     avg_ssim = 0
+    avg_psnr = 0
     ### Run eval_num times rollouts,
     for _ in tqdm(range(eval_num)):
         done = False
@@ -51,9 +52,11 @@ def evaluation(env, model, eval_num=100):
             action, _state = model.predict(obs, deterministic=True)
             obs, reward, done, info = env.step(action)
         avg_ssim += info[0]['ssim']
+        avg_psnr += info[0]['psnr']
     avg_ssim /= eval_num
+    avg_psnr /= eval_num
 
-    return avg_ssim
+    return avg_ssim, avg_psnr
 
 
 def main():

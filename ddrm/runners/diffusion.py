@@ -220,7 +220,7 @@ class Diffusion(object):
         args, config = self.args, self.config
 
         # get original images and corrupted y_0
-        dataset, self.test_dataset = get_dataset(args, config)
+        self.dataset, self.test_dataset = get_dataset(args, config)
 
         device_count = torch.cuda.device_count()
 
@@ -238,6 +238,14 @@ class Diffusion(object):
 
         g = torch.Generator()
         g.manual_seed(args.seed)
+        train_loader = data.DataLoader(
+            self.dataset,
+            batch_size=config.sampling.batch_size,
+            shuffle=True,
+            num_workers=config.data.num_workers,
+            worker_init_fn=self.seed_worker,
+            generator=g,
+        )
         val_loader = data.DataLoader(
             self.test_dataset,
             batch_size=config.sampling.batch_size,
@@ -410,7 +418,7 @@ class Diffusion(object):
         # pdb.set_trace()
         # pbar = tqdm.tqdm(val_loader)
 
-        return val_loader, sigma_0, config, deg, H_funcs, model, idx_so_far, cls_fn
+        return train_loader, val_loader, sigma_0, config, deg, H_funcs, model, idx_so_far, cls_fn
 
     # 如果沒有cls，就不會有class
     def sample_init(

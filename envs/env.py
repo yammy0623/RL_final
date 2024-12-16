@@ -26,8 +26,8 @@ class DiffusionEnv(gym.Env):
         self.last_T = 999
         self.runner = runner
         self.target_steps = target_steps
-        val_loader, sigma_0, config, deg, H_funcs, model, idx_so_far, cls_fn = self.runner.sample(cls)
-        self.val_loader = val_loader
+        train_loader, val_loader, sigma_0, config, deg, H_funcs, model, idx_so_far, cls_fn = self.runner.sample(cls)
+        self.train_loader = train_loader
         self.sigma_0 = sigma_0
         self.config = config
         self.deg = deg
@@ -77,20 +77,6 @@ class DiffusionEnv(gym.Env):
         self.max_steps = max_steps
         self.current_step_num = 0
 
-
-        # Define the action and observation space
-        self.action_space = gym.spaces.Box(low=-5.0, high=5.0, shape=(1,))
-        self.observation_space = Dict(
-            {
-                "image": Box(
-                    low=0,
-                    high=255,
-                    shape=(3, self.sample_size, self.sample_size),
-                    dtype=np.uint8,
-                ),
-                "value": Box(low=np.array([0]), high=np.array([999]), dtype=np.uint16),
-            }
-        )
         # Initialize the random seed
         self.seed(232)
         self.episode_init = True
@@ -114,7 +100,7 @@ class DiffusionEnv(gym.Env):
         self.action_sequence = []
 
         # Load Image
-        self.data_iter = iter(self.val_loader)
+        self.data_iter = iter(self.train_loader)
         self.GT_image, self.classes = next(self.data_iter)
 
         # noise and low level image y_0, 
@@ -174,6 +160,7 @@ class DiffusionEnv(gym.Env):
         orig = inverse_data_transform(self.config, self.GT_image).to(self.runner.device)
         ddim_x = inverse_data_transform(self.config, ddim_x0_t).to(self.runner.device)
         ddim_mse = torch.mean((ddim_x - orig) ** 2)
+        self.ddim_psnr = 10 * torch.log10(1 / ddim_mse).item()
         self.ddim_ssim = structural_similarity(
             ddim_x.squeeze(0).cpu().numpy(),
             orig.squeeze(0).cpu().numpy(),
@@ -182,8 +169,8 @@ class DiffusionEnv(gym.Env):
             data_range=1.0
         )
         observation = {
-            "image": torch.tensor(self.x0_t).squeeze(0).cpu().numpy(),
-            "value": np.array([self.last_T]),
+            "image":  self.x0_t[0].cpu(),  
+            "value": np.array([self.last_T])
         }
 
         # TODO START HERE
@@ -263,13 +250,15 @@ class DiffusionEnv(gym.Env):
 
         # Finish the episode if denoising is done
         done = (self.current_step_num == self.target_steps - 1)
-        reward, ssim, ddim_ssim = self.calculate_reward(done)
+        reward, ssim, psnr, ddim_ssim, ddim_psnr = self.calculate_reward(done)
         info = {
             'ddim_t': self.uniform_steps[self.current_step_num],
             't': self.t,
             'reward': reward,
             'ssim': ssim,
+            'psnr': psnr,
             'ddim_ssim': ddim_ssim,
+            'ddim_psnr': ddim_psnr,
             'time_step_sequence': self.time_step_sequence,
             'action_sequence': self.action_sequence,
         }
@@ -303,16 +292,6 @@ class DiffusionEnv(gym.Env):
             # x = inverse_data_transform(self.config, x0_t)
         return x0_t
 
-    def _create_info_dict(self, ddim_t, t, reward, ssim, ddim_ssim):
-        return {
-            "ddim_t": ddim_t,
-            "t": t,
-            "reward": reward,
-            "ssim": ssim,
-            "ddim_ssim": ddim_ssim,
-            "time_step_sequence": self.time_step_sequence,
-            "action_sequence": self.action_sequence,
-        }
 
     def calculate_reward(self, done):
         reward = 0
@@ -322,7 +301,7 @@ class DiffusionEnv(gym.Env):
         else:
             x = inverse_data_transform(self.config, self.uniform_x0_t).to(self.runner.device)
         mse = torch.mean((x - orig) ** 2)
-        # psnr = 10 * torch.log10(1 / mse).item()
+        psnr = 10 * torch.log10(1 / mse).item()
         # ssim = structural_similarity(x.cpu().numpy(), orig.cpu().numpy(), win_size=21, channel_axis=0, data_range=1.0)
         ssim = structural_similarity(
             x.squeeze(0).cpu().numpy(),
@@ -332,17 +311,17 @@ class DiffusionEnv(gym.Env):
             data_range=1.0
         )        
         # Intermediate reward (Percentage of temporary improvement)
-        if not done and ssim > self.ddim_ssim:
-            # reward += 0.5/self.target_steps*psnr/self.ddim_psnr 
+        if not done and psnr > self.ddim_psnr and ssim > self.ddim_ssim:
+            reward += 0.5/self.target_steps*psnr/self.ddim_psnr 
             reward += 0.5/self.target_steps*ssim/self.ddim_ssim
         
         # Sparse reward (Percentage of final improvement)
-        if done and ssim > self.ddim_ssim:
-            # reward += 0.5*psnr/self.ddim_psnr
+        if done and psnr > self.ddim_psnr and ssim > self.ddim_ssim:
+            reward += 0.5*psnr/self.ddim_psnr
             reward += 0.5*ssim/self.ddim_ssim
 
 
-        return reward, ssim, self.ddim_ssim
+        return reward, ssim, psnr, self.ddim_ssim, self.ddim_psnr
 
     def render(self, mode="human", close=False):
         # This could visualize the current state if necessary

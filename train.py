@@ -22,7 +22,6 @@ import os
 
 from ddrm.runners.diffusion import Diffusion
 from arguments import parse_args_and_config
-from torch.cuda.amp import autocast
 
 
 
@@ -82,37 +81,52 @@ class CustomCNN(BaseFeaturesExtractor):
         combined = th.cat([img_features, value_features], dim=1)
         return self.linear(combined)
 
-def eval(env, model, eval_episode_num):
-    """Evaluate the model and return avg_score and avg_highest"""
-    avg_reward = 0
-    avg_ssim = 0
-    avg_ddim_ssim = 0
-    for seed in range(eval_episode_num):
-        done = False
-        # Set seed using old Gym API
-        env.seed(seed)
-        obs, _ = env.reset()
+def eval(env, model, eval_episode_num, target_steps):
+        """Evaluate the model and return avg_score and avg_highest"""
+        avg_reward = 0
+        avg_reward_t = [0 for _ in range(target_steps)]
+        avg_ssim = 0
+        avg_psnr = 0
+        ddim_ssim = 0
+        ddim_psnr = 0
+        avg_start_t = 0
+        with th.no_grad():
+            for seed in range(eval_episode_num):
+                done = False
+                # Set seed using SB3 API
+                # env.seed(seed)
+                obs, info = env.reset(seed=seed)
 
-        # Interact with env using old Gym API
-        while not done:
-            action, _state = model.predict(obs, deterministic=True)
-            obs, reward, terminated, truncated, info = env.step(action)
-            done = terminated or truncated
-        
-        avg_reward += info['reward']
-        avg_ssim   += info['ssim']
-        avg_ddim_ssim += info['ddim_ssim']
+                now_t = 0
+                # Interact with env using SB3 API
+                while not done:
+                    action, _state = model.predict(obs, deterministic=True)
+                    obs, reward, done, _, info = env.step(action)
+                    avg_reward_t[now_t] += info['reward']
+                    now_t += 1
+                
+                avg_reward += info['reward']
+                avg_ssim   += info['ssim']
+                avg_psnr += info['psnr']
+                ddim_ssim += info['ddim_ssim']
+                ddim_psnr += info['ddim_psnr']
+                avg_start_t += info['time_step_sequence'][0]
 
-    avg_reward /= eval_episode_num
-    avg_ssim /= eval_episode_num
-    avg_ddim_ssim /= eval_episode_num
+        avg_reward /= eval_episode_num
+        avg_ssim /= eval_episode_num
+        avg_psnr /= eval_episode_num
+        ddim_ssim /= eval_episode_num
+        ddim_psnr /= eval_episode_num
+        avg_start_t /= eval_episode_num
+        for i in range(5):
+            avg_reward_t[i] = avg_reward_t[i] / eval_episode_num
         
-    return avg_reward, avg_ssim, avg_ddim_ssim, info['time_step_sequence']
+        return avg_reward, avg_ssim, avg_psnr, ddim_ssim, ddim_psnr, info['time_step_sequence'], info['action_sequence'], avg_reward_t, avg_start_t
 
 def train(eval_env, rl_model, config):
     """Train agent using SB3 algorithm and my_config"""
     current_best_ssim = 0
-
+    current_best_psnr = 0
 
     for epoch in range(config["epoch_num"]):
 
@@ -127,30 +141,37 @@ def train(eval_env, rl_model, config):
                 ),
             )
         else:
-            with autocast():
-                rl_model.learn(
-                    total_timesteps=config["timesteps_per_epoch"],
-                    reset_num_timesteps=False,
-                    progress_bar=True,
-                )
+            rl_model.learn(
+                total_timesteps=config["timesteps_per_epoch"],
+                reset_num_timesteps=False,
+                progress_bar=True,
+            )
 
         th.cuda.empty_cache()  # Clear GPU cache
         
         ### Evaluation
         print(config["run_id"])
         print("Epoch: ", epoch)
-        avg_reward, avg_ssim, avg_ddim_ssim, time_step_sequence = eval(eval_env, rl_model, config["eval_episode_num"])
+        avg_reward, avg_ssim, avg_psnr, ddim_ssim, ddim_psnr, time_step_sequence, action_sequence, avg_reward_t, avg_start_t = eval(eval_env, rl_model, config["eval_episode_num"], config["target_steps"])
 
         print("Avg_reward:  ", avg_reward)
+        print("Avg_reward_t:  ", avg_reward_t)
+        print("Avg_start_t:  ", avg_start_t)
         print("Avg_ssim:    ", avg_ssim)
-        print("Avg_ddim_ssim:", avg_ddim_ssim)
+        print("Avg_psnr:    ", avg_psnr)
+        print("Current_best_ssim:", current_best_ssim)
+        print("Current_best_psnr:", current_best_psnr)
+        print("DDIM_ssim:   ", ddim_ssim)
+        print("DDIM_psnr:   ", ddim_psnr)
         print("Time_step_sequence:", time_step_sequence)
+        print("Action_sequence:", action_sequence)
         print()
         print("---------------")
 
         ### Save best model
-        if current_best_ssim < avg_ssim:
+        if current_best_psnr < avg_psnr and current_best_ssim < avg_ssim:# and epoch > 10:
             print("Saving Model !!!")
+            current_best_psnr = avg_psnr
             current_best_ssim = avg_ssim
             save_path = config["save_path"]
             if not os.path.exists(save_path):
@@ -163,9 +184,13 @@ def train(eval_env, rl_model, config):
                 {
                     "avg_reward": avg_reward,
                     "avg_ssim": avg_ssim,
+                    "avg_psnr": avg_psnr,
                     "ddim_ssim": ddim_ssim,
+                    "ddim_psnr": ddim_psnr,
+                    "start_t": avg_start_t,
                 }
             )
+
         
 
 def main():
@@ -210,7 +235,7 @@ def main():
         "policy_kwargs": policy_kwargs,
 
         "DM_model": "model/ddpm_ema_cifar10",
-        "target_steps": 10,
+        "target_steps": args.target_steps,
         "max_steps": 100,
 
         "num_train_envs": 8,

@@ -36,7 +36,7 @@ class EvalDiffusionEnv(gym.Env):
         model, cls = runner.get_model()
         self.target_steps = target_steps
         self.final_threshold = 0.9
-        val_loader, sigma_0, config, deg, H_funcs, model, idx_so_far, cls_fn = self.runner.sample(cls)
+        _, val_loader, sigma_0, config, deg, H_funcs, model, idx_so_far, cls_fn = self.runner.sample(cls)
         self.val_loader = val_loader
         self.sigma_0 = sigma_0
         self.config = config
@@ -210,17 +210,6 @@ class EvalDiffusionEnv(gym.Env):
             )
             x = torch.stack([inverse_data_transform(self.config, y) for y in xs])
         return x
-
-    def _create_info_dict(self, ddim_t, t, reward, ssim, ddim_ssim):
-        return {
-            "ddim_t": ddim_t,
-            "t": t,
-            "reward": reward,
-            "ssim": ssim,
-            "ddim_ssim": ddim_ssim,
-            "time_step_sequence": self.time_step_sequence,
-            "action_sequence": self.action_sequence,
-        }
 
     def calculate_reward(self, done):
         reward = 0
