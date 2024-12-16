@@ -15,6 +15,7 @@ from ddrm.datasets import get_dataset, data_transform, inverse_data_transform
 from ddrm.functions.denoising import initialize_generalized_steps, denoise_single_step, denoise_guided_addnoise
 import pdb 
 import copy
+import gc
 class DiffusionEnv(gym.Env):
     def __init__(self, runner, target_steps=10, max_steps=100, agent1=None):
         super(DiffusionEnv, self).__init__()
@@ -24,8 +25,6 @@ class DiffusionEnv(gym.Env):
         # Model
         self.last_T = 999
         self.runner = runner
-        self.target_steps = target_steps
-        self.final_threshold = 0.9
         val_loader, sigma_0, config, deg, H_funcs, model, idx_so_far, cls_fn = self.runner.sample(cls)
         self.val_loader = val_loader
         self.sigma_0 = sigma_0
@@ -40,7 +39,6 @@ class DiffusionEnv(gym.Env):
         self.valdata_len = self.runner.val_datalen
         self.current_image_idx = 0
         self.sample_size = config.data.image_size
-        self.batch_size = config.sampling.batch_size
 
 
         # RL Setting
@@ -185,6 +183,8 @@ class DiffusionEnv(gym.Env):
             channel_axis=0,
             data_range=1.0
         )
+        del ddim_x, ddim_x0_t, ddim_mse, orig
+        gc.collect()
         observation = {
             "image": torch.tensor(self.x0_t).squeeze(0).cpu().numpy(),
             "value": np.array([self.last_T]),
@@ -208,7 +208,6 @@ class DiffusionEnv(gym.Env):
                     "image": self.x0_t.cpu(),
                     "value": np.array([self.t])
                 }
-            self.current_step_num += 1
 
         torch.cuda.empty_cache()  # Clear GPU cache
             
@@ -231,6 +230,7 @@ class DiffusionEnv(gym.Env):
 
     def step(self, action):
         truncate = self.current_step_num >= self.max_steps
+        torch.cuda.empty_cache()
         # RL
         with torch.no_grad():
             if self.adjust == False:
@@ -264,10 +264,14 @@ class DiffusionEnv(gym.Env):
             self.uniform_state['x'] = denoise_guided_addnoise(self.state, uniform_t, uniform_at, uniform_et, self.uniform_x0_t, self.H_funcs, self.sigma_0, self.runner.args)
             self.uniform_x0_t, uniform_at, uniform_et = denoise_single_step(self.uniform_state, self.model, uniform_t, self.cls_fn, self.classes)
 
-
+        
         # Finish the episode if denoising is done
         done = (self.current_step_num == self.target_steps - 1) or not self.adjust
         reward, ssim, psnr, ddim_ssim, ddim_psnr = self.calculate_reward(done)
+
+        del uniform_at, uniform_et, self.uniform_state, self.uniform_x0_t
+        gc.collect()
+
         info = {
             'ddim_t': self.uniform_steps[self.current_step_num],
             't': self.t,
@@ -281,7 +285,7 @@ class DiffusionEnv(gym.Env):
         }
 
         observation = {
-            "image":  self.x0_t[0].cpu(),  
+            "image":  self.x0_t.cpu(),  
             "value": np.array([self.t])
         }
         self.current_step_num += 1

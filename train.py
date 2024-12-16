@@ -22,6 +22,7 @@ import os
 
 from ddrm.runners.diffusion import Diffusion
 from arguments import parse_args_and_config
+from torch.cuda.amp import autocast
 
 
 LOG = False
@@ -93,10 +94,10 @@ class CustomCNN(BaseFeaturesExtractor):
             h = self.out_rest(self.out_norm(img_features + value_features))
         return h
 
-def eval(env, rl_model, eval_episode_num):
+def eval(env, rl_model, eval_episode_num, args):
     """Evaluate the model and return avg_score and avg_highest"""
     avg_reward = 0
-    avg_reward_t = [0 for _ in range(5)]
+    avg_reward_t = [0 for _ in range(args.target_steps)]
     avg_ssim = 0
     avg_psnr = 0
     ddim_ssim = 0
@@ -137,7 +138,7 @@ def eval(env, rl_model, eval_episode_num):
     
     return avg_reward, avg_ssim, avg_psnr, ddim_ssim, ddim_psnr, info['time_step_sequence'], info['action_sequence'], avg_reward_t, avg_start_t
 
-def train(eval_env, rl_model, config, epoch_num, second_stage=False):
+def train(eval_env, rl_model, config, epoch_num, args, second_stage=False):
     """Train agent using SB3 algorithm and my_config"""
     current_best_psnr = 0
     current_best_ssim = 0
@@ -156,11 +157,12 @@ def train(eval_env, rl_model, config, epoch_num, second_stage=False):
                 ),
             )
         else:
-            rl_model.learn(
-                total_timesteps=config["timesteps_per_epoch"],
-                reset_num_timesteps=False,
-                progress_bar=True,
-            )
+            with autocast():
+                rl_model.learn(
+                    total_timesteps=config["timesteps_per_epoch"],
+                    reset_num_timesteps=False,
+                    progress_bar=True,
+                )
 
         th.cuda.empty_cache()  # Clear GPU cache
         
@@ -168,7 +170,7 @@ def train(eval_env, rl_model, config, epoch_num, second_stage=False):
         print(config["run_id"])
         print("Epoch: ", epoch)
         avg_reward, avg_ssim, avg_psnr, ddim_ssim, ddim_psnr, time_step_sequence, action_sequence, avg_reward_t, avg_start_t = eval(
-            eval_env, rl_model, config["eval_episode_num"]
+            eval_env, rl_model, config["eval_episode_num"], args
         )
         print("---------------")
 
@@ -256,16 +258,16 @@ def main():
         "learning_rate": 1e-4,
         "policy_kwargs": policy_kwargs,
 
-        "DM_model": "model/ddpm_ema_cifar10",
-        "target_steps": 10,
+        # "DM_model": "model/ddpm_ema_cifar10",
+        "target_steps": args.target_steps-1,
         "max_steps": 100,
 
         "num_train_envs": 8,
         "runner": runner,
     }
 
-    my_config['run_id'] = f'SR_2agent_A2C_env_{my_config["num_train_envs"]}_steps_{my_config["target_steps"]}'
-    my_config['save_path'] = f'model/SR_2agent_A2C_{my_config["target_steps"]}'
+    my_config['run_id'] = f'new_SR_2agent_A2C_env_{my_config["num_train_envs"]}_steps_{args.target_steps}'
+    my_config['save_path'] = f'model/new_SR_2agent_A2C_{args.target_steps}'
 
     if LOG:
         _ = wandb.init(
@@ -305,7 +307,7 @@ def main():
 
     if args.second_stage == False:
         ### First stage training
-        train(eval_env, rl_model, my_config, epoch_num = my_config["first_stage_epoch_num"])
+        train(eval_env, rl_model, my_config, epoch_num = my_config["first_stage_epoch_num"], args=args)
     else:
         ### Second stage training
         print("Loaded model from: ", f"{my_config['save_path']}/best")
@@ -322,7 +324,7 @@ def main():
             learning_rate=my_config["learning_rate"],
             policy_kwargs=my_config["policy_kwargs"],
         )
-        train(eval_env, rl_model_2, my_config, epoch_num = my_config["epoch_num"] - my_config["first_stage_epoch_num"], second_stage=True)
+        train(eval_env, rl_model_2, my_config, epoch_num = my_config["epoch_num"] - my_config["first_stage_epoch_num"], args=args, second_stage=True)
 
 if __name__ == "__main__":
     main()
