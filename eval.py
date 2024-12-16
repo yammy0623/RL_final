@@ -31,19 +31,15 @@ def make_env(my_config):
     def _init():
         config = {
             "runner": my_config["runner"],
-            "model": my_config["diff_model"],
-            "cls": my_config["diff_cls"],
             "target_steps": my_config["target_steps"],
             "max_steps": my_config["max_steps"],
-            "agent1": my_config["agent1"],
         }
-        return gym.make("final-v0", **config)
+        return gym.make("final-eval", **config)
 
     return _init
     
 def evaluation(env, model, eval_num=100):
     avg_ssim = 0
-    avg_psnr = 0
     ### Run eval_num times rollouts,
     for _ in tqdm(range(eval_num)):
         done = False
@@ -55,17 +51,16 @@ def evaluation(env, model, eval_num=100):
             action, _state = model.predict(obs, deterministic=True)
             obs, reward, done, info = env.step(action)
         avg_ssim += info[0]['ssim']
-        avg_psnr += info[0]['psnr']
     avg_ssim /= eval_num
-    avg_psnr /= eval_num
 
-    return avg_ssim, avg_psnr
+    return avg_ssim
 
 
 def main():
     # Initialze DDNM
     args, config = parse_args_and_config()
     runner = Diffusion(args, config)
+    runner.sample()
 
     policy_kwargs = dict(
         features_extractor_class=CustomCNN,
@@ -80,29 +75,25 @@ def main():
         "max_steps": 100,
         "num_eval_envs": 1,
         "eval_num": len(runner.test_dataset),
+        "runner":runner
     }
     my_config['save_path'] = f'model/{args.eval_model_name}/best'
 
     ### Load model with SB3
-    agent1 = my_config['algorithm'].load(my_config['save_path'])
-    agent2 = my_config['algorithm'].load(my_config['save_path'] + '_2')
+    agent = my_config['algorithm'].load(my_config['save_path'])
     print("Loaded model from: ", my_config['save_path'])
 
     config = {
             "runner": my_config["runner"],
-            "model": my_config["diff_model"],
-            "cls": my_config["diff_cls"],
             "target_steps": my_config["target_steps"],
             "max_steps": my_config["max_steps"],
-            "agent1": agent1,
         }
 
     env = DummyVecEnv([make_env(config) for _ in range(my_config['num_eval_envs'])])
     
-    avg_ssim, avg_psnr = evaluation(env, agent2, my_config['eval_num'])
+    avg_ssim = evaluation(env, agent, my_config['eval_num'])
 
     print(f"Counts: (Total of {my_config['eval_num']} rollouts)")
-    print("Total Average PSNR: %.2f" % avg_psnr)
     print("Total Average SSIM: %.3f" % avg_ssim)
 
 

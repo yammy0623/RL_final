@@ -22,6 +22,8 @@ import os
 
 from ddrm.runners.diffusion import Diffusion
 from arguments import parse_args_and_config
+from torch.cuda.amp import autocast
+
 
 
 LOG = False
@@ -125,11 +127,12 @@ def train(eval_env, rl_model, config):
                 ),
             )
         else:
-            rl_model.learn(
-                total_timesteps=config["timesteps_per_epoch"],
-                reset_num_timesteps=False,
-                progress_bar=True,
-            )
+            with autocast():
+                rl_model.learn(
+                    total_timesteps=config["timesteps_per_epoch"],
+                    reset_num_timesteps=False,
+                    progress_bar=True,
+                )
 
         th.cuda.empty_cache()  # Clear GPU cache
         
@@ -214,8 +217,8 @@ def main():
         "runner": runner,
     }
 
-    my_config['run_id'] = f'SR_2agent_A2C_env_{my_config["num_train_envs"]}_steps_{my_config["target_steps"]}'
-    my_config['save_path'] = f'model/SR_2agent_A2C_{my_config["target_steps"]}'
+    my_config['run_id'] = f'SR_baseline_A2C_env_{my_config["num_train_envs"]}_steps_{my_config["target_steps"]}'
+    my_config['save_path'] = f'model/SR_baseline_A2C_{my_config["target_steps"]}'
 
     if LOG:
         _ = wandb.init(

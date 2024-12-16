@@ -26,7 +26,6 @@ class DiffusionEnv(gym.Env):
         self.last_T = 999
         self.runner = runner
         self.target_steps = target_steps
-        self.final_threshold = 0.9
         val_loader, sigma_0, config, deg, H_funcs, model, idx_so_far, cls_fn = self.runner.sample(cls)
         self.val_loader = val_loader
         self.sigma_0 = sigma_0

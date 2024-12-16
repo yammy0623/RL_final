@@ -9,7 +9,7 @@ data:
     random_flip: true
     rescaled: true
     num_workers: 16 # 32
-    out_of_dist: True
+    out_of_dist: False # True
 
 model:
     type: "simple"

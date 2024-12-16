@@ -220,26 +220,26 @@ class Diffusion(object):
         args, config = self.args, self.config
 
         # get original images and corrupted y_0
-        dataset, test_dataset = get_dataset(args, config)
+        dataset, self.test_dataset = get_dataset(args, config)
 
         device_count = torch.cuda.device_count()
 
         if args.subset_start >= 0 and args.subset_end > 0:
             assert args.subset_end > args.subset_start
-            test_dataset = torch.utils.data.Subset(
-                test_dataset, range(args.subset_start, args.subset_end)
+            self.test_dataset = torch.utils.data.Subset(
+                self.test_dataset, range(args.subset_start, args.subset_end)
             )
         else:
             args.subset_start = 0
-            args.subset_end = len(test_dataset)
+            args.subset_end = len(self.test_dataset)
 
-        print(f"Dataset has size {len(test_dataset)}")
-        self.val_datalen = len(test_dataset)
+        print(f"Dataset has size {len(self.test_dataset)}")
+        self.val_datalen = len(self.test_dataset)
 
         g = torch.Generator()
         g.manual_seed(args.seed)
         val_loader = data.DataLoader(
-            test_dataset,
+            self.test_dataset,
             batch_size=config.sampling.batch_size,
             shuffle=True,
             num_workers=config.data.num_workers,
