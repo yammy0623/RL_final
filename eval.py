@@ -37,7 +37,7 @@ def make_env(my_config):
             "max_steps": my_config["max_steps"],
             "agent1": my_config["agent1"],
         }
-        return gym.make("final-v0", **config)
+        return gym.make("final-eval", **config)
 
     return _init
     
@@ -66,6 +66,7 @@ def main():
     # Initialze DDNM
     args, config = parse_args_and_config()
     runner = Diffusion(args, config)
+    runner.sample()
 
     policy_kwargs = dict(
         features_extractor_class=CustomCNN,

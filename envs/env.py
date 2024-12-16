@@ -25,8 +25,8 @@ class DiffusionEnv(gym.Env):
         # Model
         self.last_T = 999
         self.runner = runner
-        val_loader, sigma_0, config, deg, H_funcs, model, idx_so_far, cls_fn = self.runner.sample(cls)
-        self.val_loader = val_loader
+        train_loader, _, sigma_0, config, deg, H_funcs, model, idx_so_far, cls_fn = self.runner.sample(cls)
+        self.train_loader = train_loader
         self.sigma_0 = sigma_0
         self.config = config
         self.deg = deg
@@ -115,7 +115,7 @@ class DiffusionEnv(gym.Env):
         self.action_sequence = []
 
         # Load Image
-        self.data_iter = iter(self.val_loader)
+        self.data_iter = iter(self.train_loader)
         self.GT_image, self.classes = next(self.data_iter)
 
         # noise and low level image y_0, 

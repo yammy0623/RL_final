@@ -220,26 +220,35 @@ class Diffusion(object):
         args, config = self.args, self.config
 
         # get original images and corrupted y_0
-        dataset, test_dataset = get_dataset(args, config)
+        self.dataset, self.test_dataset = get_dataset(args, config)
 
         device_count = torch.cuda.device_count()
 
         if args.subset_start >= 0 and args.subset_end > 0:
             assert args.subset_end > args.subset_start
-            test_dataset = torch.utils.data.Subset(
-                test_dataset, range(args.subset_start, args.subset_end)
+            self.test_dataset = torch.utils.data.Subset(
+                self.test_dataset, range(args.subset_start, args.subset_end)
             )
         else:
             args.subset_start = 0
-            args.subset_end = len(test_dataset)
+            args.subset_end = len(self.test_dataset)
 
-        print(f"Dataset has size {len(test_dataset)}")
-        self.val_datalen = len(test_dataset)
+        print(f"Train_Dataset has size {len(self.dataset)}")
+        print(f"Val_Dataset has size {len(self.test_dataset)}")
+        self.val_datalen = len(self.test_dataset)
 
         g = torch.Generator()
         g.manual_seed(args.seed)
+        train_loader = data.DataLoader(
+            self.dataset,
+            batch_size=config.sampling.batch_size,
+            shuffle=True,
+            num_workers=config.data.num_workers,
+            worker_init_fn=self.seed_worker,
+            generator=g,
+        )
         val_loader = data.DataLoader(
-            test_dataset,
+            self.test_dataset,
             batch_size=config.sampling.batch_size,
             shuffle=True,
             num_workers=config.data.num_workers,
@@ -410,7 +419,7 @@ class Diffusion(object):
         # pdb.set_trace()
         # pbar = tqdm.tqdm(val_loader)
 
-        return val_loader, sigma_0, config, deg, H_funcs, model, idx_so_far, cls_fn
+        return train_loader, val_loader, sigma_0, config, deg, H_funcs, model, idx_so_far, cls_fn
 
     # 如果沒有cls，就不會有class
     def sample_init(
