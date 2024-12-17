@@ -486,7 +486,7 @@ class Diffusion(object):
             config.data.image_size,
             device=self.device,
         )
-        return x, y_0
+        return x, y_0, x_orig
 
     def evaluation(self, x, x_orig, y_0, idx_init, pbar, idx_so_far):
         config = self.config

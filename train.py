@@ -240,15 +240,20 @@ def main():
         "target_steps": args.target_steps,
         "max_steps": 100,
 
-        "num_train_envs": 8,
+        "num_train_envs": 1,
         "runner": runner,
     }
 
     my_config['run_id'] = f'SR_baseline_A2C_env_{my_config["num_train_envs"]}_steps_{my_config["target_steps"]}'
     my_config['save_path'] = f'model/SR_baseline_A2C_{my_config["target_steps"]}'
 
+    if LOG:
+        _ = wandb.init(
+            project="final",
+            config=my_config,
             sync_tensorboard=True,  # auto-upload sb3's tensorboard metrics
             id=my_config["run_id"],
+        )
 
     config = {
             "runner": my_config["runner"],

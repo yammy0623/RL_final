@@ -104,7 +104,7 @@ class DiffusionEnv(gym.Env):
         self.GT_image, self.classes = next(self.data_iter)
 
         # noise and low level image y_0, 
-        self.noise_image, self.y_0 = self.runner.sample_init(
+        self.noise_image, self.y_0, self.GT_image = self.runner.sample_init(
             self.GT_image,
             self.sigma_0,
             self.config,
