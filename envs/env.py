@@ -201,21 +201,6 @@ class DiffusionEnv(gym.Env):
             
         return observation, {}
 
-    def _load_next_image(self):
-        self.GT_image, self.classes = next(self.data_iter)
-        self.noise, self.y_0 = self.runner.sample_init(
-            self.GT_image,
-            self.sigma_0,
-            self.config,
-            self.deg,
-            self.H_funcs,
-            self.model,
-            self.idx_so_far,
-            self.cls_fn,
-            self.classes,
-        )
-        
-
     def step(self, action):
         truncate = self.current_step_num >= self.max_steps
         torch.cuda.empty_cache()

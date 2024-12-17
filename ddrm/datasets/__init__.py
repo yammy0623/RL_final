@@ -46,11 +46,11 @@ def center_crop_arr(pil_image, image_size = 256):
 
 def get_dataset(args, config):
     if config.data.random_flip is False:
-        tran_transform = test_transform = transforms.Compose(
+        train_transform = test_transform = transforms.Compose(
             [transforms.Resize(config.data.image_size), transforms.ToTensor()]
         )
     else:
-        tran_transform = transforms.Compose(
+        train_transform = transforms.Compose(
             [
                 transforms.Resize(config.data.image_size),
                 transforms.RandomHorizontalFlip(p=0.5),
@@ -159,6 +159,7 @@ def get_dataset(args, config):
                 indices[: int(num_items * 0.9)],
                 indices[int(num_items * 0.9) :],
             )
+            train_dataset = Subset(dataset, train_indices)
             test_dataset = Subset(dataset, test_indices)
 
     elif config.data.dataset == 'ImageNet':
@@ -188,7 +189,7 @@ def get_dataset(args, config):
     else:
         dataset, test_dataset = None, None
 
-    return dataset, test_dataset
+    return dataset, train_dataset, test_dataset
 
 
 def logit_transform(image, lam=1e-6):

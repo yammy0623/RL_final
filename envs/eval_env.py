@@ -95,7 +95,7 @@ class EvalDiffusionEnv(gym.Env):
         self.GT_image, self.classes = next(self.data_iter) 
 
         # noise and low level image y_0, 
-        self.noise_image, self.y_0 = self.runner.sample_init(
+        self.noise_image, self.y_0, self.GT_image = self.runner.sample_init(
             self.GT_image,
             self.sigma_0,
             self.config,
@@ -172,20 +172,6 @@ class EvalDiffusionEnv(gym.Env):
         self.current_step_num += 1
 
         return observation, reward, done, truncate, info
-
-    def _load_next_image(self):
-        self.GT_image, self.classes = next(self.data_iter)
-        self.current_noise_image, self.y_0, self.GT_image = self.runner.sample_init(
-            self.GT_image,
-            self.sigma_0,
-            self.config,
-            self.deg,
-            self.H_funcs,
-            self.model,
-            self.idx_so_far,
-            self.cls_fn,
-            self.classes,
-        )
 
     def _update_sequences(self, t, action):
         self.time_step_sequence.append(t.item() if type(t) == torch.Tensor else t)

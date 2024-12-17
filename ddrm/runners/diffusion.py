@@ -220,7 +220,7 @@ class Diffusion(object):
         args, config = self.args, self.config
 
         # get original images and corrupted y_0
-        self.dataset, self.test_dataset = get_dataset(args, config)
+        _, self.dataset, self.test_dataset = get_dataset(args, config)
 
         device_count = torch.cuda.device_count()
 
@@ -233,7 +233,8 @@ class Diffusion(object):
             args.subset_start = 0
             args.subset_end = len(self.test_dataset)
 
-        print(f"Dataset has size {len(self.test_dataset)}")
+        print(f"Train dataset has size {len(self.dataset)}")
+        print(f"Test dataset has size {len(self.test_dataset)}")
         self.val_datalen = len(self.test_dataset)
 
         g = torch.Generator()
