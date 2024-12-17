@@ -175,7 +175,7 @@ class EvalDiffusionEnv(gym.Env):
 
     def _load_next_image(self):
         self.GT_image, self.classes = next(self.data_iter)
-        self.current_noise_image, self.y_0 = self.runner.sample_init(
+        self.current_noise_image, self.y_0, self.GT_image = self.runner.sample_init(
             self.GT_image,
             self.sigma_0,
             self.config,
