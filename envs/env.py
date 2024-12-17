@@ -16,6 +16,8 @@ from ddrm.functions.denoising import initialize_generalized_steps, denoise_singl
 import pdb 
 import copy
 import gc
+# from save_img import save_image
+
 class DiffusionEnv(gym.Env):
     def __init__(self, runner, target_steps=10, max_steps=100):
         super(DiffusionEnv, self).__init__()
@@ -117,17 +119,6 @@ class DiffusionEnv(gym.Env):
         )
 
         # Initialization, extract degradation information from y_0 sigma 0, and H_func
-        """
-        state = {
-                    "x": x, (mapping to y_0 space)
-                    "b": b (beta)
-                    "Sigma": Sigma,
-                    "Sig_inv_U_t_y": Sig_inv_U_t_y,
-                    "U_t_y": U_t_y,
-                    "singulars": singulars,
-                    "large_singulars_index": large_singulars_index,
-                }
-        """
         self.state = initialize_generalized_steps(
                 self.noise_image.to("cuda"),
                 self.last_T,
@@ -136,7 +127,6 @@ class DiffusionEnv(gym.Env):
                 self.y_0,
                 self.sigma_0,
             )
-        # self.x0_t = self.state['x']
         self.t = self.ddim_seq[0]
         self.x0_t, self.at, self.et = denoise_single_step(self.state, self.model, self.t, self.cls_fn, self.classes)
 
@@ -157,6 +147,7 @@ class DiffusionEnv(gym.Env):
                 if i != 0:
                     self.ddim_state['x'] = denoise_guided_addnoise(self.ddim_state, ddim_t, ddim_at, ddim_et, ddim_x0_t, self.H_funcs, self.sigma_0, self.runner.args)
                 ddim_x0_t, ddim_at, ddim_et = denoise_single_step(self.ddim_state, self.model, ddim_t, self.cls_fn, self.classes)
+                # save_image(ddim_x0_t, output_path="./results", file_name="ddim_x0_t.png")
         
         
         orig = inverse_data_transform(self.config, self.GT_image).to(self.runner.device)
@@ -170,32 +161,13 @@ class DiffusionEnv(gym.Env):
             channel_axis=0,
             data_range=1.0
         )
+        # save_image(ddim_x, output_path="./results", file_name="ddim_x.png")
         del ddim_x, ddim_x0_t, ddim_mse, orig
         gc.collect()
         observation = {
             "image":  self.x0_t[0].cpu(),  
             "value": np.array([self.last_T])
         }
-
-        # TODO START HERE
-        # if self.adjust: # Second subtask
-        #     action, _state = self.agent1.predict(observation, deterministic=True)
-        #     self.action_sequence.append(action.item())
-
-        #     start_t = 50 * (1+action) - 1
-        #     next_t = torch.tensor(int(max(0, min(start_t, 999))))
-        #     self.interval = int(next_t / (self.target_steps - 1)) 
-        #     self.state['x'] = denoise_guided_addnoise(self.state, next_t, self.at, self.et, self.x0_t, self.H_funcs, self.sigma_0, self.runner.args)
-            
-        #     # Next round
-        #     self.t = next_t
-        #     self.x0_t, self.at, self.et = denoise_single_step(self.state, self.model, self.t, self.cls_fn, self.classes)
-        #     self.time_step_sequence.append(self.t.item())
-        #     observation = {
-        #             "image": self.x0_t.cpu(),
-        #             "value": np.array([self.t])
-        #         }
-        #     self.current_step_num += 1
 
         torch.cuda.empty_cache()  # Clear GPU cache
             
@@ -223,27 +195,10 @@ class DiffusionEnv(gym.Env):
         self.t = next_t
         self.x0_t, self.at, self.et = denoise_single_step(self.state, self.model, self.t, self.cls_fn, self.classes)
         self.time_step_sequence.append(self.t.item())
-
-        # Run remaining steps via uniform policy
-        self.uniform_x0_t = self.x0_t.clone()
-        uniform_at = self.at.clone()
-        uniform_et = self.et.clone()
-        # self.uniform_state = self.state.clone()
-        self.uniform_state = copy.deepcopy(self.state)
-
-        for i in range(self.target_steps - self.current_step_num - 1): 
-            uniform_t = torch.tensor(int(self.t - self.interval - self.interval * i))
-            uniform_t = torch.tensor(max(0, min(uniform_t, 999)))
-            self.uniform_state['x'] = denoise_guided_addnoise(self.state, uniform_t, uniform_at, uniform_et, self.uniform_x0_t, self.H_funcs, self.sigma_0, self.runner.args)
-            self.uniform_x0_t, uniform_at, uniform_et = denoise_single_step(self.uniform_state, self.model, uniform_t, self.cls_fn, self.classes)
-
         
         # Finish the episode if denoising is done
         done = (self.current_step_num == self.target_steps - 1)
         reward, ssim, psnr, ddim_ssim, ddim_psnr = self.calculate_reward(done)
-
-        del uniform_at, uniform_et, self.uniform_state, self.uniform_x0_t
-        gc.collect()
 
         info = {
             'ddim_t': self.uniform_steps[self.current_step_num],
@@ -285,18 +240,13 @@ class DiffusionEnv(gym.Env):
                 cls_fn=self.cls_fn,
                 classes=self.classes,
             )
-            # x = torch.stack([inverse_data_transform(self.config, y) for y in xs])
-            # x = inverse_data_transform(self.config, x0_t)
         return x0_t
 
 
     def calculate_reward(self, done):
         reward = 0
         orig = inverse_data_transform(self.config, self.GT_image).to(self.runner.device)
-        if done:
-            x = inverse_data_transform(self.config, self.x0_t).to(self.runner.device)
-        else:
-            x = inverse_data_transform(self.config, self.uniform_x0_t).to(self.runner.device)
+        x = inverse_data_transform(self.config, self.x0_t).to(self.runner.device)
         mse = torch.mean((x - orig) ** 2)
         psnr = 10 * torch.log10(1 / mse).item()
         # ssim = structural_similarity(x.cpu().numpy(), orig.cpu().numpy(), win_size=21, channel_axis=0, data_range=1.0)
@@ -316,6 +266,10 @@ class DiffusionEnv(gym.Env):
         if done and psnr > self.ddim_psnr and ssim > self.ddim_ssim:
             reward += 0.5*psnr/self.ddim_psnr
             reward += 0.5*ssim/self.ddim_ssim
+
+        # if done:
+        #     save_image(x, output_path="./results", file_name="x.png")
+        #     save_image(orig, output_path="./results", file_name="orig.png")
 
 
         return reward, ssim, psnr, self.ddim_ssim, self.ddim_psnr
