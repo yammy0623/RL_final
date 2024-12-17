@@ -94,10 +94,11 @@ def main():
 
     env = DummyVecEnv([make_env(config) for _ in range(my_config['num_eval_envs'])])
     
-    avg_ssim = evaluation(env, agent, my_config['eval_num'])
+    avg_ssim, avg_psnr = evaluation(env, agent, my_config['eval_num'])
 
     print(f"Counts: (Total of {my_config['eval_num']} rollouts)")
     print("Total Average SSIM: %.3f" % avg_ssim)
+    print("Total Average PSNR: %.3f" % avg_psnr)
 
 
 if __name__ == "__main__":
