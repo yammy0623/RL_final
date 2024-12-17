@@ -215,6 +215,18 @@ def train(eval_env, rl_model, config, epoch_num, args, second_stage=False):
             )
         
 
+
+def dict2namespace(config):
+    namespace = argparse.Namespace()
+    for key, value in config.items():
+        if isinstance(value, dict):
+            new_value = dict2namespace(value)
+        else:
+            new_value = value
+        setattr(namespace, key, new_value)
+    return namespace
+
+
 def main():
 
 
@@ -228,21 +240,72 @@ def main():
     args, config = parse_args_and_config()
     runner = Diffusion(args, config)
 
-    # my_config = {
-    #     "algorithm": MD_SAC,
-    #     "buffer_size": 10000, # for SAC only, default is 1e6.
-    #     "num_train_envs": 16,
-    #     "policy_network": "MultiInputPolicy",
-    #     "epoch_num": 500,
-    #     "first_stage_epoch_num": 50,
-    #     "timesteps_per_epoch": 100,
-    #     "eval_episode_num": 16,
-    #     "learning_rate": 1e-4,
-    #     "policy_kwargs": policy_kwargs,
-    #     "runner": runner,
-    #     "target_steps": args.target_steps,
-    #     "max_steps": 100,
-    # }
+    
+    # DDPG start
+    with open(os.path.join("configs", args.config), "r") as f:
+        config = yaml.safe_load(f)
+    new_config = dict2namespace(config)
+
+    level = getattr(logging, args.verbose.upper(), None)
+    if not isinstance(level, int):
+        raise ValueError("level {} not supported".format(args.verbose))
+
+    handler1 = logging.StreamHandler()
+    formatter = logging.Formatter(
+        "%(levelname)s - %(filename)s - %(asctime)s - %(message)s"
+    )
+    # handler1.setFormatter(formatter)
+    # logger = logging.getLogger()
+    # logger.addHandler(handler1)
+    # logger.setLevel(level)
+
+    os.makedirs(os.path.join(args.exp, "image_samples"), exist_ok=True)
+    args.image_folder = os.path.join(
+        args.exp, "image_samples", args.image_folder
+    )
+    if not os.path.exists(args.image_folder):
+        os.makedirs(args.image_folder)
+    else:
+        overwrite = False
+        if args.ni:
+            overwrite = True
+        else:
+            response = input(
+                f"Image folder {args.image_folder} already exists. Overwrite? (Y/N)"
+            )
+            if response.upper() == "Y":
+                overwrite = True
+
+        if overwrite:
+            shutil.rmtree(args.image_folder)
+            os.makedirs(args.image_folder)
+        else:
+            print("Output image folder exists. Program halted.")
+            sys.exit(0)
+
+    log_path = os.path.join(args.image_folder, '0_logs.log')
+    fh = logging.FileHandler(log_path)#, mode='a')
+    fh.setFormatter(formatter)
+    # logger.setLevel(level)
+    # logger.addHandler(fh)
+    # for arg, value in sorted(vars(args).items()):
+    #     logger.info("Argument %s: %r", arg, value)
+
+    # add device
+    device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+    logging.info("Using device: {}".format(device))
+    new_config.device = device
+
+    # set random seed
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(args.seed)
+
+    torch.backends.cudnn.benchmark = True
+
+
+    # END
 
     my_config = {
         "run_id": "SAC_v1",
