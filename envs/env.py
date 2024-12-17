@@ -105,7 +105,7 @@ class DiffusionEnv(gym.Env):
         self.GT_image, self.classes = next(self.data_iter)
 
         # noise and low level image y_0, 
-        self.noise_image, self.y_0 = self.runner.sample_init(
+        self.noise_image, self.y_0, self.GT_image = self.runner.sample_init(
             self.GT_image,
             self.sigma_0,
             self.config,
@@ -201,20 +201,6 @@ class DiffusionEnv(gym.Env):
             
         return observation, {}
 
-    def _load_next_image(self):
-        self.GT_image, self.classes = next(self.data_iter)
-        self.noise, self.y_0 = self.runner.sample_init(
-            self.GT_image,
-            self.sigma_0,
-            self.config,
-            self.deg,
-            self.H_funcs,
-            self.model,
-            self.idx_so_far,
-            self.cls_fn,
-            self.classes,
-        )
-        
 
     def step(self, action):
         truncate = self.current_step_num >= self.max_steps
