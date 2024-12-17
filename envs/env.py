@@ -155,9 +155,11 @@ class DiffusionEnv(gym.Env):
         with torch.no_grad():
             for i in range(self.target_steps):
                 ddim_t = torch.tensor(self.uniform_steps[i])
-                ddim_x0_t, ddim_at, ddim_et = denoise_single_step(self.ddim_state, self.model, ddim_t, self.cls_fn, self.classes)
                 if i != 0:
                     self.ddim_state['x'] = denoise_guided_addnoise(self.ddim_state, ddim_t, ddim_at, ddim_et, ddim_x0_t, self.H_funcs, self.sigma_0, self.runner.args)
+                ddim_x0_t, ddim_at, ddim_et = denoise_single_step(self.ddim_state, self.model, ddim_t, self.cls_fn, self.classes)
+        
+        
         orig = inverse_data_transform(self.config, self.GT_image).to(self.runner.device)
         ddim_x = inverse_data_transform(self.config, ddim_x0_t).to(self.runner.device)
         ddim_mse = torch.mean((ddim_x - orig) ** 2)
