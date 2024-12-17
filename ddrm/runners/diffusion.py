@@ -220,7 +220,7 @@ class Diffusion(object):
         args, config = self.args, self.config
 
         # get original images and corrupted y_0
-        self.dataset, self.test_dataset = get_dataset(args, config)
+        _, self.dataset, self.test_dataset = get_dataset(args, config)
 
         device_count = torch.cuda.device_count()
 
