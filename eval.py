@@ -33,7 +33,6 @@ def make_env(my_config):
             "runner": my_config["runner"],
             "target_steps": my_config["target_steps"],
             "max_steps": my_config["max_steps"],
-            "agent1": my_config["agent1"],
         }
         return gym.make("final-eval", **config)
 
@@ -79,28 +78,27 @@ def main():
         "num_eval_envs": 1,
         "runner": runner,
         "eval_num": len(runner.test_dataset),
+        "runner":runner
     }
     my_config['save_path'] = f'model/{args.eval_model_name}/best'
 
     ### Load model with SB3
-    agent1 = my_config['algorithm'].load(my_config['save_path'])
-    agent2 = my_config['algorithm'].load(my_config['save_path'] + '_2')
+    agent = my_config['algorithm'].load(my_config['save_path'])
     print("Loaded model from: ", my_config['save_path'])
 
     config = {
             "runner": my_config["runner"],
             "target_steps": my_config["target_steps"],
             "max_steps": my_config["max_steps"],
-            "agent1": agent1,
         }
 
     env = DummyVecEnv([make_env(config) for _ in range(my_config['num_eval_envs'])])
     
-    avg_ssim, avg_psnr = evaluation(env, agent2, my_config['eval_num'])
+    avg_ssim, avg_psnr = evaluation(env, agent, my_config['eval_num'])
 
     print(f"Counts: (Total of {my_config['eval_num']} rollouts)")
-    print("Total Average PSNR: %.2f" % avg_psnr)
     print("Total Average SSIM: %.3f" % avg_ssim)
+    print("Total Average PSNR: %.3f" % avg_psnr)
 
 
 if __name__ == "__main__":

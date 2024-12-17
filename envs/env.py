@@ -17,15 +17,17 @@ import pdb
 import copy
 import gc
 class DiffusionEnv(gym.Env):
-    def __init__(self, runner, target_steps=10, max_steps=100, agent1=None):
+    def __init__(self, runner, target_steps=10, max_steps=100):
         super(DiffusionEnv, self).__init__()
         
         model, cls = runner.get_model()
+        self.final_threshold = 0.9
 
         # Model
         self.last_T = 999
         self.runner = runner
-        train_loader, _, sigma_0, config, deg, H_funcs, model, idx_so_far, cls_fn = self.runner.sample(cls)
+        self.target_steps = target_steps
+        train_loader, val_loader, sigma_0, config, deg, H_funcs, model, idx_so_far, cls_fn = self.runner.sample(cls)
         self.train_loader = train_loader
         self.sigma_0 = sigma_0
         self.config = config
@@ -42,19 +44,16 @@ class DiffusionEnv(gym.Env):
 
 
         # RL Setting
-        self.agent1 = agent1 # RL model from subtask 1
         self.target_steps = target_steps
-        self.uniform_steps = [i for i in range(0, 999, 1000//self.target_steps)][::-1]    
-        self.adjust = True if agent1 is not None else False    
 
         self.max_steps = max_steps
 
         # Count the number of steps
         self.current_step_num = 0 
-        if self.adjust:
-            self.action_space = gym.spaces.Box(low=-5, high=5)
-        else:
-            self.action_space = spaces.Discrete(20)
+        self.action_space = gym.spaces.Box(low=-5, high=5)
+        self.uniform_steps = [i for i in range(0, 999, 1000//self.target_steps)][::-1]    
+        # else:
+        #     self.action_space = spaces.Discrete(20)
 
         # Define the action and observation space
         self.observation_space = Dict({
@@ -151,7 +150,7 @@ class DiffusionEnv(gym.Env):
         )
         ddim_x0_t = self.ddim_state['x']
 
-        # Precoputing DDRM uniform seq
+        # Precomputing DDRM uniform seq
         with torch.no_grad():
             for i in range(self.target_steps):
                 ddim_t = torch.tensor(self.uniform_steps[i])
@@ -174,28 +173,29 @@ class DiffusionEnv(gym.Env):
         del ddim_x, ddim_x0_t, ddim_mse, orig
         gc.collect()
         observation = {
-            "image": self.x0_t[0].cpu(),
-            "value": np.array([self.last_T]),
+            "image":  self.x0_t[0].cpu(),  
+            "value": np.array([self.last_T])
         }
 
         # TODO START HERE
-        if self.adjust: # Second subtask
-            action, _state = self.agent1.predict(observation, deterministic=True)
-            self.action_sequence.append(action.item())
+        # if self.adjust: # Second subtask
+        #     action, _state = self.agent1.predict(observation, deterministic=True)
+        #     self.action_sequence.append(action.item())
 
-            start_t = 50 * (1+action) - 1
-            next_t = torch.tensor(int(max(0, min(start_t, 999))))
-            self.interval = int(next_t / (self.target_steps - 1)) 
-            self.state['x'] = denoise_guided_addnoise(self.state, next_t, self.at, self.et, self.x0_t, self.H_funcs, self.sigma_0, self.runner.args)
+        #     start_t = 50 * (1+action) - 1
+        #     next_t = torch.tensor(int(max(0, min(start_t, 999))))
+        #     self.interval = int(next_t / (self.target_steps - 1)) 
+        #     self.state['x'] = denoise_guided_addnoise(self.state, next_t, self.at, self.et, self.x0_t, self.H_funcs, self.sigma_0, self.runner.args)
             
-            # Next round
-            self.t = next_t
-            self.x0_t, self.at, self.et = denoise_single_step(self.state, self.model, self.t, self.cls_fn, self.classes)
-            self.time_step_sequence.append(self.t.item())
-            observation = {
-                    "image": self.x0_t[0].cpu(),
-                    "value": np.array([self.t])
-                }
+        #     # Next round
+        #     self.t = next_t
+        #     self.x0_t, self.at, self.et = denoise_single_step(self.state, self.model, self.t, self.cls_fn, self.classes)
+        #     self.time_step_sequence.append(self.t.item())
+        #     observation = {
+        #             "image": self.x0_t.cpu(),
+        #             "value": np.array([self.t])
+        #         }
+        #     self.current_step_num += 1
 
         torch.cuda.empty_cache()  # Clear GPU cache
             
@@ -221,13 +221,13 @@ class DiffusionEnv(gym.Env):
         torch.cuda.empty_cache()
         # RL
         with torch.no_grad():
-            if self.adjust == False:
-                start_t = 50 * (1+action) - 1
+            if self.current_step_num == 0:
+                start_t = int(self.ddim_seq[self.current_step_num] - self.interval * action)
                 next_t = torch.tensor(int(max(0, min(start_t, 999))))
                 self.interval = int(next_t / (self.target_steps - 1)) 
                 self.state['x'] = denoise_guided_addnoise(self.state, next_t, self.at, self.et, self.x0_t, self.H_funcs, self.sigma_0, self.runner.args)
                 self.action_sequence.append(action.item())
-            else: # Second subtask
+            else:
                 next_t = self.t - self.interval - self.interval * action
                 next_t = torch.tensor(int(max(0, min(next_t, 999))))
                 self.interval = int(next_t / (self.target_steps - self.current_step_num - 1)) if (self.target_steps - self.current_step_num - 1) != 0 else self.interval
@@ -254,7 +254,7 @@ class DiffusionEnv(gym.Env):
 
         
         # Finish the episode if denoising is done
-        done = (self.current_step_num == self.target_steps - 1) or not self.adjust
+        done = (self.current_step_num == self.target_steps - 1)
         reward, ssim, psnr, ddim_ssim, ddim_psnr = self.calculate_reward(done)
 
         del uniform_at, uniform_et, self.uniform_state, self.uniform_x0_t
@@ -283,19 +283,6 @@ class DiffusionEnv(gym.Env):
         torch.cuda.empty_cache()
         return observation, reward, done, truncate, info
 
-    # def _calculate_time_step_first(self, action):
-    #     start_t = 50 * (1 + action) - 1
-    #     t = torch.tensor(int(max(0, min(start_t, self.last_T))))
-    #     return t
-
-    # def _calculate_time_step_second(self, action):
-    #     t = self.t - self.interval - self.interval * action
-    #     t = torch.tensor(int(max(0, min(t, self.last_T))))
-    #     return t
-
-    # def _update_sequences(self, t, action):
-    #     self.time_step_sequence.append(t.item() if type(t) == torch.Tensor else t)
-    #     self.action_sequence.append(action.item())
 
     def _perform_denoising_single_step(self, state, t, next_t):
         with torch.no_grad():
@@ -317,21 +304,11 @@ class DiffusionEnv(gym.Env):
             # x = inverse_data_transform(self.config, x0_t)
         return x0_t
 
-    def _create_info_dict(self, ddim_t, t, reward, ssim, ddim_ssim):
-        return {
-            "ddim_t": ddim_t,
-            "t": t,
-            "reward": reward,
-            "ssim": ssim,
-            "ddim_ssim": ddim_ssim,
-            "time_step_sequence": self.time_step_sequence,
-            "action_sequence": self.action_sequence,
-        }
 
     def calculate_reward(self, done):
         reward = 0
         orig = inverse_data_transform(self.config, self.GT_image).to(self.runner.device)
-        if done and self.adjust:
+        if done:
             x = inverse_data_transform(self.config, self.x0_t).to(self.runner.device)
         else:
             x = inverse_data_transform(self.config, self.uniform_x0_t).to(self.runner.device)
@@ -361,7 +338,3 @@ class DiffusionEnv(gym.Env):
     def render(self, mode="human", close=False):
         # This could visualize the current state if necessary
         pass
-
-    def set_adjust(self, adjust):
-        self.adjust = adjust
-        print(f"Set adjust to {adjust}")

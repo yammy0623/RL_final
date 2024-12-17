@@ -16,15 +16,15 @@ import random
 from ddrm.datasets import get_dataset, data_transform, inverse_data_transform
 from ddrm.functions.denoising import initialize_generalized_steps, denoise_single_step, denoise_guided_addnoise
 import pdb
+import copy
 
 
 class EvalDiffusionEnv(gym.Env):
     def __init__(
         self,
-        runner,
+        runner, 
         target_steps=10,
         max_steps=100,
-        agent1=None,
     ):
         super(EvalDiffusionEnv, self).__init__()
 
@@ -53,14 +53,10 @@ class EvalDiffusionEnv(gym.Env):
         self.batch_size = config.sampling.batch_size
 
         # RL Setting
-        self.agent1 = agent1 # RL model from subtask 1
         self.target_steps = target_steps
         self.uniform_steps = [i for i in range(0, 999, 1000//self.target_steps)][::-1]    
-        self.adjust = True if agent1 is not None else False  
-        
         skip = self.runner.num_timesteps // self.runner.args.timesteps
         self.interval = self.runner.num_timesteps // target_steps
-        # seq = range(self.runner.num_timesteps, 0, -1*skip)
         seq = range(0, self.runner.num_timesteps, skip)
         seq_next = [-1] + list(seq[:-1])
 
@@ -70,10 +66,7 @@ class EvalDiffusionEnv(gym.Env):
 
         # Count the number of steps
         self.current_step_num = 0 
-        if self.adjust:
-            self.action_space = gym.spaces.Box(low=-5, high=5)
-        else:
-            self.action_space = spaces.Discrete(20)
+        self.action_space = gym.spaces.Box(low=-5, high=5)
 
         # Define the action and observation space
         self.observation_space = Dict({
@@ -132,25 +125,6 @@ class EvalDiffusionEnv(gym.Env):
             "image": self.x0_t[0].cpu(),  
             "value": np.array([999])
         }
-       
-        
-        with torch.no_grad():
-            action, _state = self.agent1.predict(observation, deterministic=True)
-            start_t = 50 * (1+action) - 1
-            next_t = torch.tensor(int(max(0, min(start_t, 999))))
-            self.interval = int(next_t / (self.target_steps - 1))
-            self.state['x'] = denoise_guided_addnoise(self.state, next_t, self.at, self.et, self.x0_t, self.H_funcs, self.sigma_0, self.runner.args)
-            self.action_sequence.append(action.item())
-            
-            # Next round
-            self.t = next_t
-            self.x0_t, self.at, self.et = denoise_single_step(self.state, self.model, self.t, self.cls_fn, self.classes)
-            self.time_step_sequence.append(self.t.item())
-            observation = {
-                    "image": self.x0_t.cpu(),
-                    "value": np.array([self.t])
-                }
-            self.current_step_num += 1
 
         torch.cuda.empty_cache()  # Clear GPU cache
         return observation, {}
@@ -235,17 +209,6 @@ class EvalDiffusionEnv(gym.Env):
             )
             x = torch.stack([inverse_data_transform(self.config, y) for y in xs])
         return x
-
-    def _create_info_dict(self, ddim_t, t, reward, ssim, ddim_ssim):
-        return {
-            "ddim_t": ddim_t,
-            "t": t,
-            "reward": reward,
-            "ssim": ssim,
-            "ddim_ssim": ddim_ssim,
-            "time_step_sequence": self.time_step_sequence,
-            "action_sequence": self.action_sequence,
-        }
 
     def calculate_reward(self, done):
         reward = 0

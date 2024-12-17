@@ -233,8 +233,7 @@ class Diffusion(object):
             args.subset_start = 0
             args.subset_end = len(self.test_dataset)
 
-        print(f"Train_Dataset has size {len(self.dataset)}")
-        print(f"Val_Dataset has size {len(self.test_dataset)}")
+        print(f"Dataset has size {len(self.test_dataset)}")
         self.val_datalen = len(self.test_dataset)
 
         g = torch.Generator()
