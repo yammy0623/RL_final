@@ -17,3 +17,4 @@ wandb==0.18.3
 tensorboard==2.18.0
 scikit-image
 diffusers
+stable-baselines3[extra]

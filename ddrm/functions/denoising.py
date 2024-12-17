@@ -43,11 +43,16 @@ def efficient_generalized_steps(x, seq, model, b, H_funcs, y_0, sigma_0, etaB, e
         x0_preds = []
         xs = [x]
 
-        #iterate over the timesteps
+        # iterate over the timesteps
+        # [950,900,850,…,100,50,0]
+        # [900,850,800,…,50,0,−1]
+
         for i, j in tqdm(zip(reversed(seq), reversed(seq_next))):
             t = (torch.ones(n) * i).to(x.device)
             next_t = (torch.ones(n) * j).to(x.device)
             at = compute_alpha(b, t.long())
+
+            # if t = -1, a = 1
             at_next = compute_alpha(b, next_t.long())
             xt = xs[-1].to('cuda')
             if cls_fn == None:
@@ -136,6 +141,7 @@ def initialize_generalized_steps(x, last_T, b, H_funcs, y_0, sigma_0):
         x = H_funcs.V(init_y.view(x.size(0), -1)).view(*x.size())
         return {
             "x": x,
+            "b": b,
             "Sigma": Sigma,
             "Sig_inv_U_t_y": Sig_inv_U_t_y,
             "U_t_y": U_t_y,
@@ -145,20 +151,83 @@ def initialize_generalized_steps(x, last_T, b, H_funcs, y_0, sigma_0):
 
 
 
-def denoise_single_step(state, model, t, next_t, b, H_funcs, sigma_0, etaB, etaA, etaC, cls_fn=None, classes=None):
+# def denoise_single_step(state, model, t, next_t, b, H_funcs, sigma_0, etaB, etaA, etaC, cls_fn=None, classes=None):
+#     with torch.no_grad():
+#         x = state["x"]
+#         xs = [x]
+#         Sigma = state["Sigma"]
+#         Sig_inv_U_t_y = state["Sig_inv_U_t_y"]
+#         U_t_y = state["U_t_y"]
+#         singulars = state["singulars"]
+#         t = torch.tensor([t]).to(x.device)
+#         next_t = torch.tensor([next_t]).to(x.device)
+
+#         at = compute_alpha(b, t.long())
+#         at_next = compute_alpha(b, next_t.long())
+#         xt = xs[-1].to('cuda')
+#         if cls_fn == None:
+#             et = model(xt, t)
+#         else:
+#             et = model(xt, t, classes)
+#             et = et[:, :3]
+#             et = et - (1 - at).sqrt()[0,0,0,0] * cls_fn(x,t,classes)
+        
+#         if et.size(1) == 6:
+#             et = et[:, :3]
+        
+#         x0_t = (xt - et * (1 - at).sqrt()) / at.sqrt()
+
+#         #variational inference conditioned on y
+#         sigma = (1 - at).sqrt()[0, 0, 0, 0] / at.sqrt()[0, 0, 0, 0]
+#         sigma_next = (1 - at_next).sqrt()[0, 0, 0, 0] / at_next.sqrt()[0, 0, 0, 0]
+#         xt_mod = xt / at.sqrt()[0, 0, 0, 0]
+#         V_t_x = H_funcs.Vt(xt_mod)
+#         SVt_x = (V_t_x * Sigma)[:, :U_t_y.shape[1]]
+#         V_t_x0 = H_funcs.Vt(x0_t)
+#         SVt_x0 = (V_t_x0 * Sigma)[:, :U_t_y.shape[1]]
+
+#         falses = torch.zeros(V_t_x0.shape[1] - singulars.shape[0], dtype=torch.bool, device=xt.device)
+#         cond_before_lite = singulars * sigma_next > sigma_0
+#         cond_after_lite = singulars * sigma_next < sigma_0
+#         cond_before = torch.hstack((cond_before_lite, falses))
+#         cond_after = torch.hstack((cond_after_lite, falses))
+
+#         std_nextC = sigma_next * etaC
+#         sigma_tilde_nextC = torch.sqrt(sigma_next ** 2 - std_nextC ** 2)
+
+#         std_nextA = sigma_next * etaA
+#         sigma_tilde_nextA = torch.sqrt(sigma_next**2 - std_nextA**2)
+        
+#         diff_sigma_t_nextB = torch.sqrt(sigma_next ** 2 - sigma_0 ** 2 / singulars[cond_before_lite] ** 2 * (etaB ** 2))
+
+#         #missing pixels
+#         Vt_xt_mod_next = V_t_x0 + sigma_tilde_nextC * H_funcs.Vt(et) + std_nextC * torch.randn_like(V_t_x0)
+
+#         #less noisy than y (after)
+#         Vt_xt_mod_next[:, cond_after] = \
+#             V_t_x0[:, cond_after] + sigma_tilde_nextA * ((U_t_y - SVt_x0) / sigma_0)[:, cond_after_lite] + std_nextA * torch.randn_like(V_t_x0[:, cond_after])
+        
+#         #noisier than y (before)
+#         Vt_xt_mod_next[:, cond_before] = \
+#             (Sig_inv_U_t_y[:, cond_before_lite] * etaB + (1 - etaB) * V_t_x0[:, cond_before] + diff_sigma_t_nextB * torch.randn_like(U_t_y)[:, cond_before_lite])
+
+#         #aggregate all 3 cases and give next prediction
+#         xt_mod_next = H_funcs.V(Vt_xt_mod_next)
+#         xt_next = (at_next.sqrt()[0, 0, 0, 0] * xt_mod_next).view(*x.shape)
+
+#     return x0_t.to("cpu"), xt_next.to("cpu")
+
+
+
+# split the x0_t and xt_next
+
+def denoise_single_step(state, model, t, cls_fn=None, classes=None):
     with torch.no_grad():
         x = state["x"]
-        xs = [x]
-        Sigma = state["Sigma"]
-        Sig_inv_U_t_y = state["Sig_inv_U_t_y"]
-        U_t_y = state["U_t_y"]
-        singulars = state["singulars"]
+        xt = x.to('cuda')
         t = torch.tensor([t]).to(x.device)
-        next_t = torch.tensor([next_t]).to(x.device)
-
+        b = state["b"]
         at = compute_alpha(b, t.long())
-        at_next = compute_alpha(b, next_t.long())
-        xt = xs[-1].to('cuda')
         if cls_fn == None:
             et = model(xt, t)
         else:
@@ -171,13 +240,29 @@ def denoise_single_step(state, model, t, next_t, b, H_funcs, sigma_0, etaB, etaA
         
         x0_t = (xt - et * (1 - at).sqrt()) / at.sqrt()
 
+    return x0_t.to("cpu"), at, et
+
+def denoise_guided_addnoise(state, next_t, at, et, x0_t, H_funcs, sigma_0, args):
+    with torch.no_grad():
+        x = state["x"]
+        xt = x.to('cuda')
+        b = state["b"]
+        Sigma = state["Sigma"]
+        Sig_inv_U_t_y = state["Sig_inv_U_t_y"]
+        U_t_y = state["U_t_y"]
+        singulars = state["singulars"]
+        etaA = args.eta
+        etaB = args.etaB
+        etaC = args.eta
         #variational inference conditioned on y
+        next_t = torch.tensor([next_t]).to(x.device)
+        at_next = compute_alpha(b, next_t.long())
         sigma = (1 - at).sqrt()[0, 0, 0, 0] / at.sqrt()[0, 0, 0, 0]
         sigma_next = (1 - at_next).sqrt()[0, 0, 0, 0] / at_next.sqrt()[0, 0, 0, 0]
         xt_mod = xt / at.sqrt()[0, 0, 0, 0]
         V_t_x = H_funcs.Vt(xt_mod)
         SVt_x = (V_t_x * Sigma)[:, :U_t_y.shape[1]]
-        V_t_x0 = H_funcs.Vt(x0_t)
+        V_t_x0 = H_funcs.Vt(x0_t).to(xt.device)
         SVt_x0 = (V_t_x0 * Sigma)[:, :U_t_y.shape[1]]
 
         falses = torch.zeros(V_t_x0.shape[1] - singulars.shape[0], dtype=torch.bool, device=xt.device)
@@ -209,4 +294,4 @@ def denoise_single_step(state, model, t, next_t, b, H_funcs, sigma_0, etaB, etaA
         xt_mod_next = H_funcs.V(Vt_xt_mod_next)
         xt_next = (at_next.sqrt()[0, 0, 0, 0] * xt_mod_next).view(*x.shape)
 
-    return x0_t.to("cpu"), xt_next.to("cpu")
+    return xt_next.to("cpu")
