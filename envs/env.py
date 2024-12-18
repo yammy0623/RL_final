@@ -119,7 +119,7 @@ class DiffusionEnv(gym.Env):
             )
         )
         save_image(inverse_data_transform(self.config, self.GT_image).to(self.runner.device), output_path="./results", file_name="self.GT_image.png")
-        save_image(inverse_data_transform(self.config, self.y_0).to(self.runner.device), output_path="./results", file_name="self.y_0.png")
+        save_image(inverse_data_transform(self.config, self.H_inv_y).to(self.runner.device), output_path="./results", file_name="self.H_inv_y.png")
 
         # Initialization, extract degradation information from y_0 sigma 0, and H_func
         self.state = initialize_generalized_steps(
