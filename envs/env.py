@@ -16,7 +16,7 @@ from ddrm.functions.denoising import initialize_generalized_steps, denoise_singl
 import pdb 
 import copy
 import gc
-# from save_img import save_image
+from save_img import save_image
 
 class DiffusionEnv(gym.Env):
     def __init__(self, runner, target_steps=10, max_steps=100):
@@ -40,7 +40,6 @@ class DiffusionEnv(gym.Env):
         
         self.idx_so_far = idx_so_far
         self.cls_fn = cls_fn
-        self.valdata_len = self.runner.val_datalen
         self.current_image_idx = 0
         self.sample_size = config.data.image_size
 
@@ -92,6 +91,7 @@ class DiffusionEnv(gym.Env):
         torch.random.manual_seed(seed)
 
     def reset(self, seed=None, options=None):
+        print("reset!")
         self.episode_init = True
         if seed is not None:
             self.seed(seed)
@@ -117,6 +117,8 @@ class DiffusionEnv(gym.Env):
             self.cls_fn,
             self.classes,
         )
+        save_image(inverse_data_transform(self.config, self.GT_image).to(self.runner.device), output_path="./results", file_name="self.GT_image.png")
+        save_image(inverse_data_transform(self.config, self.y_0).to(self.runner.device), output_path="./results", file_name="self.y_0.png")
 
         # Initialization, extract degradation information from y_0 sigma 0, and H_func
         self.state = initialize_generalized_steps(
@@ -147,7 +149,7 @@ class DiffusionEnv(gym.Env):
                 if i != 0:
                     self.ddim_state['x'] = denoise_guided_addnoise(self.ddim_state, ddim_t, ddim_at, ddim_et, ddim_x0_t, self.H_funcs, self.sigma_0, self.runner.args)
                 ddim_x0_t, ddim_at, ddim_et = denoise_single_step(self.ddim_state, self.model, ddim_t, self.cls_fn, self.classes)
-                # save_image(ddim_x0_t, output_path="./results", file_name="ddim_x0_t.png")
+                save_image(ddim_x0_t, output_path="./results", file_name="ddim_x0_t.png")
         
         
         orig = inverse_data_transform(self.config, self.GT_image).to(self.runner.device)
@@ -161,7 +163,7 @@ class DiffusionEnv(gym.Env):
             channel_axis=0,
             data_range=1.0
         )
-        # save_image(ddim_x, output_path="./results", file_name="ddim_x.png")
+        save_image(ddim_x, output_path="./results", file_name="ddim_x.png")
         del ddim_x, ddim_x0_t, ddim_mse, orig
         gc.collect()
         observation = {
@@ -267,9 +269,11 @@ class DiffusionEnv(gym.Env):
             reward += 0.5*psnr/self.ddim_psnr
             reward += 0.5*ssim/self.ddim_ssim
 
-        # if done:
-        #     save_image(x, output_path="./results", file_name="x.png")
-        #     save_image(orig, output_path="./results", file_name="orig.png")
+        if done:
+            save_image(x, output_path="./results", file_name="x.png")
+            save_image(orig, output_path="./results", file_name="orig.png")
+        # print("psnr = ", psnr)
+        # print("ssim = ", ssim)
 
 
         return reward, ssim, psnr, self.ddim_ssim, self.ddim_psnr
