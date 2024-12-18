@@ -16,6 +16,7 @@ from ddrm.functions.denoising import initialize_generalized_steps, denoise_singl
 import pdb 
 import copy
 import gc
+from save_img import save_image
 class DiffusionEnv(gym.Env):
     def __init__(self, runner, target_steps=10, max_steps=100, agent1=None):
         super(DiffusionEnv, self).__init__()
@@ -118,6 +119,8 @@ class DiffusionEnv(gym.Env):
                 self.classes,
             )
         )
+        save_image(inverse_data_transform(self.config, self.GT_image).to(self.runner.device), output_path="./results", file_name="self.GT_image.png")
+        save_image(inverse_data_transform(self.config, self.pinv_y_0).to(self.runner.device), output_path="./results", file_name="self.pinv_y_0.png")
 
         # Initialization, extract degradation information from y_0 sigma 0, and H_func
         """
@@ -344,6 +347,11 @@ class DiffusionEnv(gym.Env):
             reward += 0.5*psnr/self.ddim_psnr
             reward += 0.5*ssim/self.ddim_ssim
 
+        if done:
+            save_image(x, output_path="./results", file_name="x.png")
+            save_image(orig, output_path="./results", file_name="orig.png")
+        print("psnr = ", psnr)
+        print("ssim = ", ssim)
 
         return reward, ssim, psnr, self.ddim_ssim, self.ddim_psnr
 
