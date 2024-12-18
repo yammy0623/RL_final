@@ -487,7 +487,8 @@ class Diffusion(object):
             config.data.image_size,
             device=self.device,
         )
-        return x, y_0, x_orig
+        H_inv_y = H_funcs.H_pinv(y_0.reshape(y_0.size(0), -1)).reshape(x.size())
+        return x, y_0, pinv_y_0, x_orig, H_inv_y
 
     def evaluation(self, x, x_orig, y_0, idx_init, pbar, idx_so_far):
         config = self.config

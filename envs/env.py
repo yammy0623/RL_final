@@ -105,16 +105,18 @@ class DiffusionEnv(gym.Env):
         self.GT_image, self.classes = next(self.data_iter)
 
         # noise and low level image y_0, 
-        self.noise_image, self.y_0, self.GT_image = self.runner.sample_init(
-            self.GT_image,
-            self.sigma_0,
-            self.config,
-            self.deg,
-            self.H_funcs,
-            self.model,
-            self.idx_so_far,
-            self.cls_fn,
-            self.classes,
+        self.noise_image, self.y_0, self.pinv_y_0, self.GT_image, self.H_inv_y = (
+            self.runner.sample_init(
+                self.GT_image,
+                self.sigma_0,
+                self.config,
+                self.deg,
+                self.H_funcs,
+                self.model,
+                self.idx_so_far,
+                self.cls_fn,
+                self.classes,
+            )
         )
 
         # Initialization, extract degradation information from y_0 sigma 0, and H_func
@@ -130,26 +132,27 @@ class DiffusionEnv(gym.Env):
                 }
         """
         self.state = initialize_generalized_steps(
-                self.noise_image.to("cuda"),
-                self.last_T,
-                self.runner.betas,
-                self.H_funcs,
-                self.y_0,
-                self.sigma_0,
-            )
+            self.pinv_y_0.to("cuda"),
+            self.last_T,
+            self.runner.betas,
+            self.H_funcs,
+            self.y_0,
+            self.sigma_0,
+        )
         # self.x0_t = self.state['x']
         self.t = self.ddim_seq[0]
         self.x0_t, self.at, self.et = denoise_single_step(self.state, self.model, self.t, self.cls_fn, self.classes)
+        self.x0_t = self.pinv_y_0.clone()
 
         self.ddim_state = initialize_generalized_steps(
-            self.noise_image.to("cuda"),
+            self.pinv_y_0.to("cuda"),
             self.ddim_seq[0],
             self.runner.betas,
             self.H_funcs,
             self.y_0,
             self.sigma_0,
         )
-        ddim_x0_t = self.ddim_state['x']
+        ddim_x0_t = self.pinv_y_0.clone()
 
         # Precoputing DDRM uniform seq
         with torch.no_grad():
