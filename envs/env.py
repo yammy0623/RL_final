@@ -19,18 +19,21 @@ import gc
 from save_img import save_image
 
 class DiffusionEnv(gym.Env):
-    def __init__(self, runner, target_steps=10, max_steps=100):
+    def __init__(self, runner, target_steps, max_steps, worker_id):
         super(DiffusionEnv, self).__init__()
 
-        model, cls = runner.get_model()
+        self.runner = copy.deepcopy(runner)
+        model, cls = self.runner.get_model()
         self.final_threshold = 0.9
+        self.worker_id = worker_id
 
         # Model
         self.last_T = 999
-        self.runner = runner
         self.target_steps = target_steps
-        train_loader, val_loader, sigma_0, config, deg, H_funcs, model, idx_so_far, cls_fn = self.runner.sample(cls)
-        self.train_loader = train_loader
+        _, _, sigma_0, config, deg, H_funcs, model, idx_so_far, cls_fn = self.runner.sample(
+            cls,
+            worker_id=worker_id)
+        # self.train_loader = train_loader
         self.sigma_0 = sigma_0
         self.config = config
         self.deg = deg
@@ -77,10 +80,12 @@ class DiffusionEnv(gym.Env):
         self.current_step_num = 0
 
         # Initialize the random seed
-        self.seed(232)
+        self.seed(232 + worker_id)
         self.episode_init = True
         self.state = None
         # pdb.set_trace()
+        del runner
+        torch.cuda.empty_cache()
 
     def seed(self, seed=None):
         np.random.seed(seed)
@@ -90,18 +95,26 @@ class DiffusionEnv(gym.Env):
 
     def reset(self, seed=None, options=None):
         # print("reset!")
+        torch.cuda.empty_cache()
+        gc.collect()
         self.episode_init = True
         if seed is not None:
-            self.seed(seed)
+            self.seed(seed + self.worker_id)
 
         # Reset counter, sequence
         self.current_step_num = 0
         self.time_step_sequence = []
         self.action_sequence = []
+        self.data_idx = random.randint(0, len(self.runner.train_dataset)-1)
+        self.GT_image, self.classes = self.runner.train_dataset[self.data_idx]
+        if self.GT_image.dim() == 3:
+            self.GT_image = self.GT_image.unsqueeze(0)
+        # print("self.GT_image shape:", self.GT_image.shape)
 
-        # Load Image
-        self.data_iter = iter(self.train_loader)
-        self.GT_image, self.classes = next(self.data_iter)
+        # # Load Image
+        # if self.episode_init or not hasattr(self, 'data_iter'):
+        #     self.data_iter = iter(self.train_loader)
+        # self.GT_image, self.classes = next(self.data_iter)
 
         # noise and low level image y_0,
         # x, y_0, pinv_y_0, x_orig, H_inv_y
@@ -118,8 +131,6 @@ class DiffusionEnv(gym.Env):
                 self.classes,
             )
         )
-        # save_image(inverse_data_transform(self.config, self.GT_image).to(self.runner.device), output_path="./results", file_name="self.GT_image.png")
-        # save_image(inverse_data_transform(self.config, self.pinv_y_0).to(self.runner.device), output_path="./results", file_name="self.pinv_y_0.png")
 
         # Initialization, extract degradation information from y_0 sigma 0, and H_func
         self.state = initialize_generalized_steps(
@@ -142,7 +153,7 @@ class DiffusionEnv(gym.Env):
             self.y_0,
             self.sigma_0,
         )
-        ddim_x0_t = self.ddim_state['x']
+        ddim_x0_t = self.pinv_y_0.clone()
 
         # Precomputing DDRM uniform seq
         with torch.no_grad():
@@ -154,8 +165,8 @@ class DiffusionEnv(gym.Env):
                 # save_image(ddim_x0_t, output_path="./results", file_name="ddim_x0_t.png")
         
         
-        orig = inverse_data_transform(self.config, self.GT_image).to(self.runner.device)
-        ddim_x = inverse_data_transform(self.config, ddim_x0_t).to(self.runner.device)
+        orig = inverse_data_transform(self.config, self.GT_image[0]).to(self.runner.device)
+        ddim_x = inverse_data_transform(self.config, ddim_x0_t[0]).to(self.runner.device)
         ddim_mse = torch.mean((ddim_x - orig) ** 2)
         self.ddim_psnr = 10 * torch.log10(1 / ddim_mse).item()
         self.ddim_ssim = structural_similarity(
@@ -166,6 +177,8 @@ class DiffusionEnv(gym.Env):
             data_range=1.0
         )
         # save_image(ddim_x, output_path="./results", file_name="ddim_x.png")
+        # save_image(inverse_data_transform(self.config, self.GT_image).to(self.runner.device), output_path="./results", file_name="self.GT_image.png")
+        # save_image(inverse_data_transform(self.config, self.pinv_y_0).to(self.runner.device), output_path="./results", file_name="self.pinv_y_0.png")
         del ddim_x, ddim_x0_t, ddim_mse, orig
         gc.collect()
         observation = {
@@ -178,6 +191,7 @@ class DiffusionEnv(gym.Env):
         return observation, {}
 
     def step(self, action):
+        # print("step!!!")
         truncate = self.current_step_num >= self.max_steps
         torch.cuda.empty_cache()
         # RL
@@ -246,18 +260,18 @@ class DiffusionEnv(gym.Env):
 
     def calculate_reward(self, done):
         reward = 0
-        orig = inverse_data_transform(self.config, self.GT_image).to(self.runner.device)
-        x = inverse_data_transform(self.config, self.x0_t).to(self.runner.device)
+        orig = inverse_data_transform(self.config, self.GT_image[0]).to(self.runner.device)
+        x = inverse_data_transform(self.config, self.x0_t[0]).to(self.runner.device)
         mse = torch.mean((x - orig) ** 2)
         psnr = 10 * torch.log10(1 / mse).item()
-        # ssim = structural_similarity(x.cpu().numpy(), orig.cpu().numpy(), win_size=21, channel_axis=0, data_range=1.0)
-        ssim = structural_similarity(
-            x.squeeze(0).cpu().numpy(),
-            orig.squeeze(0).cpu().numpy(),
-            win_size=21,
-            channel_axis=0,
-            data_range=1.0
-        )        
+        ssim = structural_similarity(x.cpu().numpy(), orig.cpu().numpy(), win_size=21, channel_axis=0, data_range=1.0)
+        # ssim = structural_similarity(
+        #     x.squeeze(0).cpu().numpy(),
+        #     orig.squeeze(0).cpu().numpy(),
+        #     win_size=21,
+        #     channel_axis=0,
+        #     data_range=1.0
+        # )        
         # Intermediate reward (Percentage of temporary improvement)
         if not done and psnr > self.ddim_psnr and ssim > self.ddim_ssim:
             reward += 0.5/self.target_steps*psnr/self.ddim_psnr 
@@ -268,9 +282,12 @@ class DiffusionEnv(gym.Env):
             reward += 0.5*psnr/self.ddim_psnr
             reward += 0.5*ssim/self.ddim_ssim
 
+        # save_image(x, output_path="./results", file_name="x.png")
+        # save_image(orig, output_path="./results", file_name="orig.png")
         # if done:
         #     save_image(x, output_path="./results", file_name="x.png")
         #     save_image(orig, output_path="./results", file_name="orig.png")
+
         # print("psnr = ", psnr)
         # print("ssim = ", ssim)
 

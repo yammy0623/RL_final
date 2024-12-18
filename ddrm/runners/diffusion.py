@@ -71,7 +71,16 @@ class Diffusion(object):
             )
         self.device = device
         self.model = None
-
+        self.dataset, self.train_dataset, self.test_dataset = get_dataset(args, config)
+        if args.subset_start >= 0 and args.subset_end > 0:
+            assert args.subset_end > args.subset_start
+            self.test_dataset = torch.utils.data.Subset(
+                self.test_dataset, range(args.subset_start, args.subset_end)
+            )
+        else:
+            args.subset_start = 0
+            args.subset_end = len(self.test_dataset)
+            
         self.model_var_type = config.model.var_type
         betas = get_beta_schedule(
             beta_schedule=config.diffusion.beta_schedule,
@@ -214,7 +223,7 @@ class Diffusion(object):
         np.random.seed(worker_seed)
         random.seed(worker_seed)
 
-    def sample(self, cls_fn=None):
+    def sample(self, cls_fn=None, worker_id=None):
         # cls_fn = self.get_model()
         # inference
         args, config = self.args, self.config
@@ -239,12 +248,14 @@ class Diffusion(object):
 
         g = torch.Generator()
         g.manual_seed(args.seed)
+
+        print("worker_id = ", lambda worker_id: np.random.seed(worker_id))
         train_loader = data.DataLoader(
             self.dataset,
             batch_size=config.sampling.batch_size,
             shuffle=True,
             num_workers=config.data.num_workers,
-            worker_init_fn=self.seed_worker,
+            worker_init_fn=lambda worker_id: np.random.seed(worker_id),
             generator=g,
         )
         val_loader = data.DataLoader(
@@ -252,7 +263,7 @@ class Diffusion(object):
             batch_size=config.sampling.batch_size,
             shuffle=True,
             num_workers=config.data.num_workers,
-            worker_init_fn=self.seed_worker,
+            worker_init_fn=lambda worker_id: np.random.seed(worker_id),
             generator=g,
         )
 
@@ -435,6 +446,7 @@ class Diffusion(object):
         classes=None,
     ):
         x_orig = x_orig.to(self.device)
+        # print("x_orig_shape = ", x_orig.shape)
         x_orig = data_transform(self.config, x_orig)
 
         # create pinv_y_0, y_0

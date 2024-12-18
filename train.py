@@ -240,7 +240,7 @@ def main():
         "target_steps": args.target_steps,
         "max_steps": 100,
 
-        "num_train_envs": 1,
+        "num_train_envs": 16,
         "runner": runner,
     }
 

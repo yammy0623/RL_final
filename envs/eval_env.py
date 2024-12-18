@@ -32,8 +32,8 @@ class EvalDiffusionEnv(gym.Env):
              
         # Model
         self.last_T = 999
-        self.runner = runner
-        model, cls = runner.get_model()
+        self.runner = copy.deepcopy(runner)
+        model, cls = self.runner.get_model()
         self.target_steps = target_steps
         self.final_threshold = 0.9
         _, val_loader, sigma_0, config, deg, H_funcs, model, idx_so_far, cls_fn = self.runner.sample(cls)
@@ -95,22 +95,24 @@ class EvalDiffusionEnv(gym.Env):
         self.GT_image, self.classes = next(self.data_iter) 
 
         # noise and low level image y_0, 
-        self.noise_image, self.y_0, self.GT_image = self.runner.sample_init(
-            self.GT_image,
-            self.sigma_0,
-            self.config,
-            self.deg,
-            self.H_funcs,
-            self.model,
-            self.idx_so_far,
-            self.cls_fn,
-            self.classes,
-        )  
+        self.noise_image, self.y_0, self.pinv_y_0, self.GT_image, self.H_inv_y = (
+            self.runner.sample_init(
+                self.GT_image,
+                self.sigma_0,
+                self.config,
+                self.deg,
+                self.H_funcs,
+                self.model,
+                self.idx_so_far,
+                self.cls_fn,
+                self.classes,
+            )
+        )
 
 
         # Initialization, extract degradation information from y_0 sigma 0, and H_func
         self.state = initialize_generalized_steps(
-                self.noise_image.to("cuda"),
+                self.pinv_y_0.to("cuda"),
                 self.last_T,
                 self.runner.betas,
                 self.H_funcs,
@@ -120,6 +122,7 @@ class EvalDiffusionEnv(gym.Env):
         # self.x0_t = self.state['x']
         self.t = self.ddim_seq[0]
         self.x0_t, self.at, self.et = denoise_single_step(self.state, self.model, self.t, self.cls_fn, self.classes)
+        self.x0_t = self.pinv_y_0.clone()
 
         observation = {
             "image": self.x0_t[0].cpu(),  
