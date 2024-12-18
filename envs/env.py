@@ -21,7 +21,7 @@ import gc
 class DiffusionEnv(gym.Env):
     def __init__(self, runner, target_steps=10, max_steps=100):
         super(DiffusionEnv, self).__init__()
-        
+
         model, cls = runner.get_model()
         self.final_threshold = 0.9
 
@@ -37,13 +37,12 @@ class DiffusionEnv(gym.Env):
         self.H_funcs = H_funcs
         self.model = model
         self.model.to("cuda")
-        
+
         self.idx_so_far = idx_so_far
         self.cls_fn = cls_fn
         self.valdata_len = self.runner.val_datalen
         self.current_image_idx = 0
         self.sample_size = config.data.image_size
-
 
         # RL Setting
         self.target_steps = target_steps
@@ -62,7 +61,6 @@ class DiffusionEnv(gym.Env):
             "image": Box(low=-1, high=1, shape=(3, self.sample_size, self.sample_size), dtype=np.float32),
             "value": Box(low=np.array([0]), high=np.array([999]), dtype=np.uint16)
         })
-    
 
         # ddim sequence
         skip = self.runner.num_timesteps // self.runner.args.timesteps
@@ -105,33 +103,36 @@ class DiffusionEnv(gym.Env):
         self.data_iter = iter(self.train_loader)
         self.GT_image, self.classes = next(self.data_iter)
 
-        # noise and low level image y_0, 
-        self.noise_image, self.y_0, self.GT_image = self.runner.sample_init(
-            self.GT_image,
-            self.sigma_0,
-            self.config,
-            self.deg,
-            self.H_funcs,
-            self.model,
-            self.idx_so_far,
-            self.cls_fn,
-            self.classes,
+        # noise and low level image y_0,
+        # x, y_0, pinv_y_0, x_orig, H_inv_y
+        self.noise_image, self.y_0, self.pinv_y_0, self.GT_image, self.H_inv_y = (
+            self.runner.sample_init(
+                self.GT_image,
+                self.sigma_0,
+                self.config,
+                self.deg,
+                self.H_funcs,
+                self.model,
+                self.idx_so_far,
+                self.cls_fn,
+                self.classes,
+            )
         )
 
         # Initialization, extract degradation information from y_0 sigma 0, and H_func
         self.state = initialize_generalized_steps(
-                self.noise_image.to("cuda"),
-                self.last_T,
-                self.runner.betas,
-                self.H_funcs,
-                self.y_0,
-                self.sigma_0,
-            )
+            self.H_inv_y.to("cuda"),
+            self.last_T,
+            self.runner.betas,
+            self.H_funcs,
+            self.y_0,
+            self.sigma_0,
+        )
         self.t = self.ddim_seq[0]
         self.x0_t, self.at, self.et = denoise_single_step(self.state, self.model, self.t, self.cls_fn, self.classes)
 
         self.ddim_state = initialize_generalized_steps(
-            self.noise_image.to("cuda"),
+            self.H_inv_y.to("cuda"),
             self.ddim_seq[0],
             self.runner.betas,
             self.H_funcs,
@@ -148,8 +149,7 @@ class DiffusionEnv(gym.Env):
                     self.ddim_state['x'] = denoise_guided_addnoise(self.ddim_state, ddim_t, ddim_at, ddim_et, ddim_x0_t, self.H_funcs, self.sigma_0, self.runner.args)
                 ddim_x0_t, ddim_at, ddim_et = denoise_single_step(self.ddim_state, self.model, ddim_t, self.cls_fn, self.classes)
                 # save_image(ddim_x0_t, output_path="./results", file_name="ddim_x0_t.png")
-        
-        
+
         orig = inverse_data_transform(self.config, self.GT_image).to(self.runner.device)
         ddim_x = inverse_data_transform(self.config, ddim_x0_t).to(self.runner.device)
         ddim_mse = torch.mean((ddim_x - orig) ** 2)
@@ -170,7 +170,7 @@ class DiffusionEnv(gym.Env):
         }
 
         torch.cuda.empty_cache()  # Clear GPU cache
-            
+
         return observation, {}
 
     def step(self, action):
@@ -191,11 +191,10 @@ class DiffusionEnv(gym.Env):
                 self.state['x'] = denoise_guided_addnoise(self.state, next_t, self.at, self.et, self.x0_t, self.H_funcs, self.sigma_0, self.runner.args)
                 self.action_sequence.append(action.item())
 
-        
         self.t = next_t
         self.x0_t, self.at, self.et = denoise_single_step(self.state, self.model, self.t, self.cls_fn, self.classes)
         self.time_step_sequence.append(self.t.item())
-        
+
         # Finish the episode if denoising is done
         done = (self.current_step_num == self.target_steps - 1)
         reward, ssim, psnr, ddim_ssim, ddim_psnr = self.calculate_reward(done)
@@ -223,7 +222,6 @@ class DiffusionEnv(gym.Env):
         torch.cuda.empty_cache()
         return observation, reward, done, truncate, info
 
-
     def _perform_denoising_single_step(self, state, t, next_t):
         with torch.no_grad():
             x0_t, xt_next = denoise_single_step(
@@ -241,7 +239,6 @@ class DiffusionEnv(gym.Env):
                 classes=self.classes,
             )
         return x0_t
-
 
     def calculate_reward(self, done):
         reward = 0
@@ -261,7 +258,7 @@ class DiffusionEnv(gym.Env):
         if not done and psnr > self.ddim_psnr and ssim > self.ddim_ssim:
             reward += 0.5/self.target_steps*psnr/self.ddim_psnr 
             reward += 0.5/self.target_steps*ssim/self.ddim_ssim
-        
+
         # Sparse reward (Percentage of final improvement)
         if done and psnr > self.ddim_psnr and ssim > self.ddim_ssim:
             reward += 0.5*psnr/self.ddim_psnr
@@ -270,7 +267,6 @@ class DiffusionEnv(gym.Env):
         # if done:
         #     save_image(x, output_path="./results", file_name="x.png")
         #     save_image(orig, output_path="./results", file_name="orig.png")
-
 
         return reward, ssim, psnr, self.ddim_ssim, self.ddim_psnr
 
