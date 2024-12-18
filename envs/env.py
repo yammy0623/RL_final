@@ -16,18 +16,18 @@ from ddrm.functions.denoising import initialize_generalized_steps, denoise_singl
 import pdb 
 import copy
 import gc
-from save_img import save_image
+# from save_img import save_image
 class DiffusionEnv(gym.Env):
     def __init__(self, runner, target_steps=10, max_steps=100, agent1=None):
         super(DiffusionEnv, self).__init__()
         
-        model, cls = runner.get_model()
+        self.runner = copy.deepcopy(runner)
+        model, cls = self.runner.get_model()
 
         # Model
         self.last_T = 999
-        self.runner = runner
-        train_loader, _, sigma_0, config, deg, H_funcs, model, idx_so_far, cls_fn = self.runner.sample(cls)
-        self.train_loader = train_loader
+        _, _, sigma_0, config, deg, H_funcs, model, idx_so_far, cls_fn = self.runner.sample(cls)
+        # self.train_loader = train_loader
         self.sigma_0 = sigma_0
         self.config = config
         self.deg = deg
@@ -37,7 +37,6 @@ class DiffusionEnv(gym.Env):
         
         self.idx_so_far = idx_so_far
         self.cls_fn = cls_fn
-        self.valdata_len = self.runner.val_datalen
         self.current_image_idx = 0
         self.sample_size = config.data.image_size
 
@@ -84,6 +83,9 @@ class DiffusionEnv(gym.Env):
         self.episode_init = True
         self.state = None
         # pdb.set_trace()
+        del runner
+        torch.cuda.empty_cache()
+
 
     def seed(self, seed=None):
         np.random.seed(seed)
@@ -101,9 +103,14 @@ class DiffusionEnv(gym.Env):
         self.time_step_sequence = []
         self.action_sequence = []
 
+        self.data_idx = random.randint(0, len(self.runner.train_dataset)-1)
+        self.GT_image, self.classes = self.runner.train_dataset[self.data_idx]
+        if self.GT_image.dim() == 3:
+            self.GT_image = self.GT_image.unsqueeze(0)
+
         # Load Image
-        self.data_iter = iter(self.train_loader)
-        self.GT_image, self.classes = next(self.data_iter)
+        # self.data_iter = iter(self.train_loader)
+        # self.GT_image, self.classes = next(self.data_iter)
 
         # noise and low level image y_0, 
         self.noise_image, self.y_0, self.pinv_y_0, self.GT_image, self.H_inv_y = (
@@ -119,8 +126,8 @@ class DiffusionEnv(gym.Env):
                 self.classes,
             )
         )
-        save_image(inverse_data_transform(self.config, self.GT_image).to(self.runner.device), output_path="./results", file_name="self.GT_image.png")
-        save_image(inverse_data_transform(self.config, self.pinv_y_0).to(self.runner.device), output_path="./results", file_name="self.pinv_y_0.png")
+        # save_image(inverse_data_transform(self.config, self.GT_image).to(self.runner.device), output_path="./results", file_name="self.GT_image.png")
+        # save_image(inverse_data_transform(self.config, self.pinv_y_0).to(self.runner.device), output_path="./results", file_name="self.pinv_y_0.png")
 
         # Initialization, extract degradation information from y_0 sigma 0, and H_func
         """
@@ -166,8 +173,8 @@ class DiffusionEnv(gym.Env):
                 ddim_x0_t, ddim_at, ddim_et = denoise_single_step(self.ddim_state, self.model, ddim_t, self.cls_fn, self.classes)
         
         
-        orig = inverse_data_transform(self.config, self.GT_image).to(self.runner.device)
-        ddim_x = inverse_data_transform(self.config, ddim_x0_t).to(self.runner.device)
+        orig = inverse_data_transform(self.config, self.GT_image[0]).to(self.runner.device)
+        ddim_x = inverse_data_transform(self.config, ddim_x0_t[0]).to(self.runner.device)
         ddim_mse = torch.mean((ddim_x - orig) ** 2)
         self.ddim_psnr = 10 * torch.log10(1 / ddim_mse).item()
         self.ddim_ssim = structural_similarity(
@@ -322,11 +329,11 @@ class DiffusionEnv(gym.Env):
 
     def calculate_reward(self, done):
         reward = 0
-        orig = inverse_data_transform(self.config, self.GT_image).to(self.runner.device)
+        orig = inverse_data_transform(self.config, self.GT_image[0]).to(self.runner.device)
         if done and self.adjust:
-            x = inverse_data_transform(self.config, self.x0_t).to(self.runner.device)
+            x = inverse_data_transform(self.config, self.x0_t[0]).to(self.runner.device)
         else:
-            x = inverse_data_transform(self.config, self.uniform_x0_t).to(self.runner.device)
+            x = inverse_data_transform(self.config, self.uniform_x0_t[0]).to(self.runner.device)
         mse = torch.mean((x - orig) ** 2)
         psnr = 10 * torch.log10(1 / mse).item()
         # ssim = structural_similarity(x.cpu().numpy(), orig.cpu().numpy(), win_size=21, channel_axis=0, data_range=1.0)
@@ -347,11 +354,11 @@ class DiffusionEnv(gym.Env):
             reward += 0.5*psnr/self.ddim_psnr
             reward += 0.5*ssim/self.ddim_ssim
 
-        if done:
-            save_image(x, output_path="./results", file_name="x.png")
-            save_image(orig, output_path="./results", file_name="orig.png")
-        print("psnr = ", psnr)
-        print("ssim = ", ssim)
+        # if done:
+        #     save_image(x, output_path="./results", file_name="x.png")
+        #     save_image(orig, output_path="./results", file_name="orig.png")
+        # print("psnr = ", psnr)
+        # print("ssim = ", ssim)
 
         return reward, ssim, psnr, self.ddim_ssim, self.ddim_psnr
 

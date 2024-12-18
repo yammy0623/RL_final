@@ -73,6 +73,18 @@ class Diffusion(object):
         self.model = None
 
         self.model_var_type = config.model.var_type
+
+        self.dataset, self.train_dataset, self.test_dataset = get_dataset(args, config)
+        if args.subset_start >= 0 and args.subset_end > 0:
+            assert args.subset_end > args.subset_start
+            self.test_dataset = torch.utils.data.Subset(
+                self.test_dataset, range(args.subset_start, args.subset_end)
+            )
+        else:
+            args.subset_start = 0
+            args.subset_end = len(self.test_dataset)
+            
+
         betas = get_beta_schedule(
             beta_schedule=config.diffusion.beta_schedule,
             beta_start=config.diffusion.beta_start,

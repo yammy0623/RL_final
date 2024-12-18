@@ -16,6 +16,8 @@ import random
 from ddrm.datasets import get_dataset, data_transform, inverse_data_transform
 from ddrm.functions.denoising import initialize_generalized_steps, denoise_single_step, denoise_guided_addnoise
 import pdb
+import copy
+import gc
 
 
 class EvalDiffusionEnv(gym.Env):
@@ -32,12 +34,12 @@ class EvalDiffusionEnv(gym.Env):
              
         # Model
         self.last_T = 999
-        self.runner = runner
-        model, cls = runner.get_model()
+        self.runner = copy.deepcopy(runner)
+        model, cls = self.runner.get_model()
         self.target_steps = target_steps
         self.final_threshold = 0.9
-        _, val_loader, sigma_0, config, deg, H_funcs, model, idx_so_far, cls_fn = self.runner.sample(cls)
-        self.val_loader = val_loader
+        _, _, sigma_0, config, deg, H_funcs, model, idx_so_far, cls_fn = self.runner.sample(cls)
+        # self.val_loader = val_loader
         self.sigma_0 = sigma_0
         self.config = config
         self.deg = deg
@@ -80,6 +82,8 @@ class EvalDiffusionEnv(gym.Env):
             "image": Box(low=-1, high=1, shape=(3, self.sample_size, self.sample_size), dtype=np.float32),
             "value": Box(low=np.array([0]), high=np.array([999]), dtype=np.uint16)
         })
+        del runner
+        torch.cuda.empty_cache()
 
     def seed(self, seed=None):
         np.random.seed(seed)
@@ -97,9 +101,14 @@ class EvalDiffusionEnv(gym.Env):
         self.time_step_sequence = []
         self.action_sequence = []
 
+        self.data_idx = random.randint(0, len(self.runner.test_dataset)-1)
+        self.GT_image, self.classes = self.runner.test_dataset[self.data_idx]
+        if self.GT_image.dim() == 3:
+            self.GT_image = self.GT_image.unsqueeze(0)
+
         # Load Image
-        self.data_iter = iter(self.val_loader)
-        self.GT_image, self.classes = next(self.data_iter) 
+        # self.data_iter = iter(self.val_loader)
+        # self.GT_image, self.classes = next(self.data_iter) 
 
         # noise and low level image y_0, 
         self.noise_image, self.y_0, self.GT_image = self.runner.sample_init(
@@ -117,7 +126,7 @@ class EvalDiffusionEnv(gym.Env):
 
         # Initialization, extract degradation information from y_0 sigma 0, and H_func
         self.state = initialize_generalized_steps(
-                self.noise_image.to("cuda"),
+                self.pinv_y_0.to("cuda"),
                 self.last_T,
                 self.runner.betas,
                 self.H_funcs,
@@ -127,6 +136,7 @@ class EvalDiffusionEnv(gym.Env):
         # self.x0_t = self.state['x']
         self.t = self.ddim_seq[0]
         self.x0_t, self.at, self.et = denoise_single_step(self.state, self.model, self.t, self.cls_fn, self.classes)
+        self.x0_t = self.pinv_y_0.clone()
 
         observation = {
             "image": self.x0_t[0].cpu(),  
@@ -177,7 +187,7 @@ class EvalDiffusionEnv(gym.Env):
         
         if done:
             self.runner.save_img(self.x0_t, self.img_idx_so_far)
-            self.img_idx_so_far += 1 if self.img_idx_so_far < len(self.val_loader.dataset) - 1 else 0
+            self.img_idx_so_far += 1 if self.img_idx_so_far < len(self.test_dataset) - 1 else 0
             
         info = {
             'ddim_t': self.uniform_steps[self.current_step_num],
