@@ -224,7 +224,7 @@ def main():
     # }
 
     my_config = {
-        "run_id": "SAC_v1",
+        "run_id": "A2C_v1",
 
         "algorithm": A2C,
         "policy_network": "MultiInputPolicy",
@@ -244,8 +244,8 @@ def main():
         "runner": runner,
     }
 
-    my_config['run_id'] = f'SR_baseline_A2C_env_{my_config["num_train_envs"]}_steps_{my_config["target_steps"]}'
-    my_config['save_path'] = f'model/SR_baseline_A2C_{my_config["target_steps"]}'
+    my_config['run_id'] = f'{args.deg}_baseline_A2C_env_{my_config["num_train_envs"]}_steps_{my_config["target_steps"]}'
+    my_config['save_path'] = f'model/{args.deg}_baseline_A2C_{my_config["target_steps"]}'
 
     if LOG:
         _ = wandb.init(
