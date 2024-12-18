@@ -111,17 +111,19 @@ class EvalDiffusionEnv(gym.Env):
         # self.GT_image, self.classes = next(self.data_iter) 
 
         # noise and low level image y_0, 
-        self.noise_image, self.y_0, self.GT_image = self.runner.sample_init(
-            self.GT_image,
-            self.sigma_0,
-            self.config,
-            self.deg,
-            self.H_funcs,
-            self.model,
-            self.idx_so_far,
-            self.cls_fn,
-            self.classes,
-        )  
+        self.noise_image, self.y_0, self.pinv_y_0, self.GT_image, self.H_inv_y = (
+            self.runner.sample_init(
+                self.GT_image,
+                self.sigma_0,
+                self.config,
+                self.deg,
+                self.H_funcs,
+                self.model,
+                self.idx_so_far,
+                self.cls_fn,
+                self.classes,
+            )
+        ) 
 
 
         # Initialization, extract degradation information from y_0 sigma 0, and H_func
@@ -187,7 +189,7 @@ class EvalDiffusionEnv(gym.Env):
         
         if done:
             self.runner.save_img(self.x0_t, self.img_idx_so_far)
-            self.img_idx_so_far += 1 if self.img_idx_so_far < len(self.test_dataset) - 1 else 0
+            self.img_idx_so_far += 1 if self.img_idx_so_far < len(self.runner.test_dataset) - 1 else 0
             
         info = {
             'ddim_t': self.uniform_steps[self.current_step_num],

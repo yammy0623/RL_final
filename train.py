@@ -245,7 +245,7 @@ def main():
     # }
 
     my_config = {
-        "run_id": "SAC_v1",
+        "run_id": "A2C_v1",
 
         "algorithm": A2C,
         "policy_network": "MultiInputPolicy",
@@ -262,7 +262,7 @@ def main():
         "target_steps": args.target_steps-1,
         "max_steps": 100,
 
-        "num_train_envs": 8,
+        "num_train_envs": 16,
         "runner": runner,
     }
 
