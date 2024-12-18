@@ -266,8 +266,8 @@ def main():
         "runner": runner,
     }
 
-    my_config['run_id'] = f'new_SR_2agent_A2C_env_{my_config["num_train_envs"]}_steps_{args.target_steps}'
-    my_config['save_path'] = f'model/new_SR_2agent_A2C_{args.target_steps}'
+    my_config['run_id'] = f'{args.deg}_2agent_A2C_env_{my_config["num_train_envs"]}_steps_{args.target_steps}'
+    my_config['save_path'] = f'model/{args.deg}_2agent_A2C_{args.target_steps}'
 
     if LOG:
         _ = wandb.init(
