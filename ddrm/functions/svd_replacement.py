@@ -433,6 +433,7 @@ class Deblurring(H_functions):
 
     def Vt(self, vec):
         #multiply the image by V^T from the left and by V from the right
+        vec = vec.to(self.V_small.device)
         temp = self.mat_by_img(self.V_small.transpose(0, 1), vec.clone())
         temp = self.img_by_mat(temp, self.V_small).reshape(vec.shape[0], self.channels, -1)
         #permute the entries according to the singular values
