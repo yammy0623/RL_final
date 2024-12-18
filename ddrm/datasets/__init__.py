@@ -155,9 +155,13 @@ def get_dataset(args, config):
             np.random.seed(2019)
             np.random.shuffle(indices)
             np.random.set_state(random_state)
+            # train_indices, test_indices = (
+            #     indices[: int(num_items * 0.9)],
+            #     indices[int(num_items * 0.9) :],
+            # )
             train_indices, test_indices = (
-                indices[: int(num_items * 0.9)],
-                indices[int(num_items * 0.9) :],
+                indices[: -1000],
+                indices[-1000 :],
             )
             train_dataset = Subset(dataset, train_indices)
             test_dataset = Subset(dataset, test_indices)

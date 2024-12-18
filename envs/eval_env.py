@@ -36,8 +36,8 @@ class EvalDiffusionEnv(gym.Env):
         model, cls = self.runner.get_model()
         self.target_steps = target_steps
         self.final_threshold = 0.9
-        _, val_loader, sigma_0, config, deg, H_funcs, model, idx_so_far, cls_fn = self.runner.sample(cls)
-        self.val_loader = val_loader
+        _, _, sigma_0, config, deg, H_funcs, model, idx_so_far, cls_fn = self.runner.sample(cls)
+        # self.val_loader = val_loader
         self.sigma_0 = sigma_0
         self.config = config
         self.deg = deg
@@ -47,7 +47,7 @@ class EvalDiffusionEnv(gym.Env):
         
         self.idx_so_far = idx_so_far
         self.cls_fn = cls_fn
-        self.valdata_len = self.runner.val_datalen
+        # self.valdata_len = self.runner.val_datalen
         self.current_image_idx = 0
         self.sample_size = config.data.image_size
         self.batch_size = config.sampling.batch_size
@@ -90,9 +90,13 @@ class EvalDiffusionEnv(gym.Env):
         self.time_step_sequence = []
         self.action_sequence = []
 
+        self.data_idx = random.randint(0, len(self.runner.test_dataset)-1)
+        self.GT_image, self.classes = self.runner.test_dataset[self.data_idx]
+        if self.GT_image.dim() == 3:
+            self.GT_image = self.GT_image.unsqueeze(0)
         # Load Image
-        self.data_iter = iter(self.val_loader)
-        self.GT_image, self.classes = next(self.data_iter) 
+        # self.data_iter = iter(self.val_loader)
+        # self.GT_image, self.classes = next(self.data_iter) 
 
         # noise and low level image y_0, 
         self.noise_image, self.y_0, self.pinv_y_0, self.GT_image, self.H_inv_y = (
@@ -154,7 +158,7 @@ class EvalDiffusionEnv(gym.Env):
         
         if done:
             self.runner.save_img(self.x0_t, self.img_idx_so_far)
-            self.img_idx_so_far += 1 if self.img_idx_so_far < len(self.val_loader.dataset) - 1 else 0
+            self.img_idx_so_far += 1 if self.img_idx_so_far < len(self.runner.test_dataset) - 1 else 0
             
         info = {
             'ddim_t': self.uniform_steps[self.current_step_num],
