@@ -123,7 +123,7 @@ class DiffusionEnv(gym.Env):
 
         # Initialization, extract degradation information from y_0 sigma 0, and H_func
         self.state = initialize_generalized_steps(
-            self.H_inv_y.to("cuda"),
+            self.noise_image.to("cuda"),
             self.last_T,
             self.runner.betas,
             self.H_funcs,
@@ -131,17 +131,17 @@ class DiffusionEnv(gym.Env):
             self.sigma_0,
         )
         self.t = self.ddim_seq[0]
-        self.x0_t, self.at, self.et = denoise_single_step(self.state, self.model, self.t, self.cls_fn, self.classes)
+        self.x0_t = self.H_inv_y.clone()
 
         self.ddim_state = initialize_generalized_steps(
-            self.H_inv_y.to("cuda"),
+            self.noise_image.to("cuda"),
             self.ddim_seq[0],
             self.runner.betas,
             self.H_funcs,
             self.y_0,
             self.sigma_0,
         )
-        ddim_x0_t = self.ddim_state['x']
+        ddim_x0_t = self.H_inv_y
 
         # Precomputing DDRM uniform seq
         with torch.no_grad():
@@ -151,8 +151,7 @@ class DiffusionEnv(gym.Env):
                     self.ddim_state['x'] = denoise_guided_addnoise(self.ddim_state, ddim_t, ddim_at, ddim_et, ddim_x0_t, self.H_funcs, self.sigma_0, self.runner.args)
                 ddim_x0_t, ddim_at, ddim_et = denoise_single_step(self.ddim_state, self.model, ddim_t, self.cls_fn, self.classes)
                 save_image(ddim_x0_t, output_path="./results", file_name="ddim_x0_t.png")
-        
-        
+
         orig = inverse_data_transform(self.config, self.GT_image).to(self.runner.device)
         ddim_x = inverse_data_transform(self.config, ddim_x0_t).to(self.runner.device)
         ddim_mse = torch.mean((ddim_x - orig) ** 2)
@@ -272,7 +271,6 @@ class DiffusionEnv(gym.Env):
             save_image(orig, output_path="./results", file_name="orig.png")
         # print("psnr = ", psnr)
         # print("ssim = ", ssim)
-
 
         return reward, ssim, psnr, self.ddim_ssim, self.ddim_psnr
 
