@@ -108,10 +108,12 @@ def main():
     print("Total Average PSNR: %.2f" % avg_psnr)
     print("Total Average SSIM: %.3f" % avg_ssim)
     with open("./output.txt", 'a') as file:
-        file.write(f"Counts: (Total of rollouts)\n")
+        file.write(f"Counts: (Total of {my_config['eval_num']} rollouts)\n")
         file.write(f"time step sequence = {time_step_sequence}\n")
-        file.write("Total Average PSNR:\n")
-        file.write("Total Average SSIM:\n")
+        file.write("Total Average SSIM: %.3f" % avg_ssim)
+        file.write("\n")
+        file.write("Total Average PSNR: %.3f" % avg_psnr)
+        file.write("\n")
 
 if __name__ == "__main__":
     main()
