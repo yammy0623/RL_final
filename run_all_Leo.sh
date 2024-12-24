@@ -7,7 +7,7 @@ TIMESTEPS=20
 ETA=0.85
 ETAB=1
 SIGMA_0=0.00
-INPUT="celeba_hq_sr4_sigma_0.05"
+INPUT="celeba_hq_deblur_sigma_0.00"
 INPUT_ROOT="/disk_195a/qiannnhui"
 
 # Training and evaluation for "sr4"
