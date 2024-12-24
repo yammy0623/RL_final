@@ -85,6 +85,7 @@ class DiffusionEnv(gym.Env):
         # pdb.set_trace()
         del runner
         torch.cuda.empty_cache()
+        # self.reset()
 
     def seed(self, seed=None):
         np.random.seed(seed)
@@ -106,6 +107,7 @@ class DiffusionEnv(gym.Env):
         self.action_sequence = []
         self.data_idx = random.randint(0, len(self.runner.train_dataset)-1)
         self.GT_image, self.classes = self.runner.train_dataset[self.data_idx]
+        self.classes = None
         if self.GT_image.dim() == 3:
             self.GT_image = self.GT_image.unsqueeze(0)
         # print("self.GT_image shape:", self.GT_image.shape)
