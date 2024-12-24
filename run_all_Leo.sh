@@ -6,13 +6,13 @@ DOC="celeba"
 TIMESTEPS=20
 ETA=0.85
 ETAB=1
-SIGMA_0=0.05
+SIGMA_0=0.00
 INPUT="celeba_hq_sr4_sigma_0.05"
-INPUT_ROOT="./"
+INPUT_ROOT="/disk_195a/qiannnhui"
 
 # Training and evaluation for "sr4"
 DEG="sr4"
-for DEG in sr4 deblur_uni
+for DEG in deblur_uni
 do
     echo "Starting training and evaluation for ${DEG}..."
     for TARGET_STEPS in 5 10 20; do
