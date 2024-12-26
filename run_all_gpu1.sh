@@ -1,4 +1,4 @@
-export CUDA_VISIBLE_DEVICES=1
+export CUDA_VISIBLE_DEVICES=0
 # imagenet sr4
 # python train.py --ni --config imagenet_256.yml --doc imagenet_ood --timesteps 20 --eta 0.85 --etaB 1 --deg sr4 --sigma_0 0.05 -i imagenet_sr4_sigma_0.0 --target_steps 5
 # python eval.py --ni --config imagenet_256.yml --doc imagenet_ood --timesteps 20 --eta 0.85 --etaB 1 --deg sr4 --sigma_0 0.05 -i imagenet_sr4_sigma_0.0 --target_steps 5 --eval_model_name sr4_baseline_A2C_5

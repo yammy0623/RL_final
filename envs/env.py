@@ -52,7 +52,7 @@ class DiffusionEnv(gym.Env):
 
         # Count the number of steps
         self.current_step_num = 0 
-        self.action_space = gym.spaces.Box(low=-5, high=5)
+        self.action_space = gym.spaces.Box(low=-1, high=1)
         self.uniform_steps = [i for i in range(0, 999, 1000//self.target_steps)][::-1]    
         # else:
         #     self.action_space = spaces.Discrete(20)
@@ -197,18 +197,23 @@ class DiffusionEnv(gym.Env):
         torch.cuda.empty_cache()
         # RL
         with torch.no_grad():
-            if self.current_step_num == 0:
-                start_t = int(self.ddim_seq[self.current_step_num] - self.interval * action)
-                next_t = torch.tensor(int(max(0, min(start_t, 999))))
-                self.interval = int(next_t / (self.target_steps - 1)) 
-                self.state['x'] = denoise_guided_addnoise(self.state, next_t, self.at, self.et, self.x0_t, self.H_funcs, self.sigma_0, self.runner.args)
-                self.action_sequence.append(action.item())
-            else:
-                next_t = self.t - self.interval - self.interval * action
-                next_t = torch.tensor(int(max(0, min(next_t, 999))))
-                self.interval = int(next_t / (self.target_steps - self.current_step_num - 1)) if (self.target_steps - self.current_step_num - 1) != 0 else self.interval
-                self.state['x'] = denoise_guided_addnoise(self.state, next_t, self.at, self.et, self.x0_t, self.H_funcs, self.sigma_0, self.runner.args)
-                self.action_sequence.append(action.item())
+            # if self.current_step_num == 0:
+            # print("interval = ", self.interval)
+            start_t = self.t - self.interval - self.interval * action
+            # print("start_t = ", start_t)
+            # print("current_step_num = ", self.current_step_num)
+            # print("first item = ", self.interval*(5-self.current_step_num))
+            next_t = torch.tensor(int(max(0, min(start_t, 999))))
+            # self.interval = int(next_t / (self.target_steps - 1)) 
+            self.state['x'] = denoise_guided_addnoise(self.state, next_t, self.at, self.et, self.x0_t, self.H_funcs, self.sigma_0, self.runner.args)
+            self.action_sequence.append(action.item())
+            # else:
+            #     # next_t = self.t - self.interval - self.interval * action
+            #     next_t = int(self.ddim_seq[self.current_step_num] - self.interval * action)
+            #     next_t = torch.tensor(int(max(0, min(next_t, 999))))
+            #     # self.interval = int(next_t / (self.target_steps - self.current_step_num - 1)) if (self.target_steps - self.current_step_num - 1) != 0 else self.interval
+            #     self.state['x'] = denoise_guided_addnoise(self.state, next_t, self.at, self.et, self.x0_t, self.H_funcs, self.sigma_0, self.runner.args)
+            #     self.action_sequence.append(action.item())
 
         self.t = next_t
         self.x0_t, self.at, self.et = denoise_single_step(self.state, self.model, self.t, self.cls_fn, self.classes)
@@ -274,14 +279,16 @@ class DiffusionEnv(gym.Env):
         #     data_range=1.0
         # )        
         # Intermediate reward (Percentage of temporary improvement)
-        if not done and psnr > self.ddim_psnr and ssim > self.ddim_ssim:
-            reward += 0.5/self.target_steps*psnr/self.ddim_psnr 
-            reward += 0.5/self.target_steps*ssim/self.ddim_ssim
+        if ssim > self.ddim_ssim:
+            # reward += 0.5/self.target_steps*psnr/self.ddim_psnr 
+            reward += 1/self.target_steps
 
         # Sparse reward (Percentage of final improvement)
-        if done and psnr > self.ddim_psnr and ssim > self.ddim_ssim:
-            reward += 0.5*psnr/self.ddim_psnr
-            reward += 0.5*ssim/self.ddim_ssim
+        # if done and psnr > self.ddim_psnr and ssim > self.final_threshold: 
+        if done and ssim > self.final_threshold:
+            # reward += 0.5*psnr/self.ddim_psnr
+            # reward += 0.5*ssim/self.ddim_ssim
+            reward += 1
 
         # save_image(x, output_path="./results", file_name="x.png")
         # save_image(orig, output_path="./results", file_name="orig.png")
