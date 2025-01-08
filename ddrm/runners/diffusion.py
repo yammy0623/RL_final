@@ -65,7 +65,7 @@ class Diffusion(object):
         self.config = config
         if device is None:
             device = (
-                torch.device("cuda")
+                torch.device("cuda:"+ str(args.gpu_idx))
                 if torch.cuda.is_available()
                 else torch.device("cpu")
             )

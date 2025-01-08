@@ -24,6 +24,7 @@ class EvalDiffusionEnv(gym.Env):
     def __init__(
         self,
         runner,
+        gpu_idx,
         target_steps=10,
         max_steps=100,
         agent1=None,
@@ -33,6 +34,8 @@ class EvalDiffusionEnv(gym.Env):
         self.img_idx_so_far = 0
              
         # Model
+        self.gpu_idx = gpu_idx
+        self.device = torch.device("cuda:" + str(gpu_idx))
         self.last_T = 999
         self.runner = copy.deepcopy(runner)
         model, cls = self.runner.get_model()
@@ -45,7 +48,7 @@ class EvalDiffusionEnv(gym.Env):
         self.deg = deg
         self.H_funcs = H_funcs
         self.model = model
-        self.model.to("cuda")
+        self.model.to(self.device)
         
         self.idx_so_far = idx_so_far
         self.cls_fn = cls_fn
@@ -83,7 +86,8 @@ class EvalDiffusionEnv(gym.Env):
             "value": Box(low=np.array([0]), high=np.array([999]), dtype=np.uint16)
         })
         del runner
-        torch.cuda.empty_cache()
+        with torch.cuda.device(self.gpu_idx):
+            torch.cuda.empty_cache()
 
     def seed(self, seed=None):
         np.random.seed(seed)
@@ -128,7 +132,7 @@ class EvalDiffusionEnv(gym.Env):
 
         # Initialization, extract degradation information from y_0 sigma 0, and H_func
         self.state = initialize_generalized_steps(
-                self.pinv_y_0.to("cuda"),
+                self.pinv_y_0.to(self.device),
                 self.last_T,
                 self.runner.betas,
                 self.H_funcs,
@@ -163,8 +167,8 @@ class EvalDiffusionEnv(gym.Env):
                     "value": np.array([self.t])
                 }
             self.current_step_num += 1
-
-        torch.cuda.empty_cache()  # Clear GPU cache
+        with torch.cuda.device(self.gpu_idx):
+            torch.cuda.empty_cache()  # Clear GPU cache
         return observation, {}
 
 

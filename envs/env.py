@@ -18,13 +18,15 @@ import copy
 import gc
 # from save_img import save_image
 class DiffusionEnv(gym.Env):
-    def __init__(self, runner, target_steps=10, max_steps=100, agent1=None):
+    def __init__(self, runner, gpu_idx, target_steps=10, max_steps=100, agent1=None):
         super(DiffusionEnv, self).__init__()
         
         self.runner = copy.deepcopy(runner)
         model, cls = self.runner.get_model()
 
         # Model
+        self.gpu_idx = gpu_idx
+        self.device = torch.device("cuda:"+str(gpu_idx))
         self.last_T = 999
         _, _, sigma_0, config, deg, H_funcs, model, idx_so_far, cls_fn = self.runner.sample(cls)
         # self.train_loader = train_loader
@@ -33,7 +35,7 @@ class DiffusionEnv(gym.Env):
         self.deg = deg
         self.H_funcs = H_funcs
         self.model = model
-        self.model.to("cuda")
+        self.model.to(self.device)
         
         self.idx_so_far = idx_so_far
         self.cls_fn = cls_fn
@@ -84,7 +86,8 @@ class DiffusionEnv(gym.Env):
         self.state = None
         # pdb.set_trace()
         del runner
-        torch.cuda.empty_cache()
+        with torch.cuda.device(self.gpu_idx):
+            torch.cuda.empty_cache()
 
 
     def seed(self, seed=None):
@@ -142,7 +145,7 @@ class DiffusionEnv(gym.Env):
                 }
         """
         self.state = initialize_generalized_steps(
-            self.pinv_y_0.to("cuda"),
+            self.pinv_y_0.to(self.device),
             self.last_T,
             self.runner.betas,
             self.H_funcs,
@@ -152,17 +155,20 @@ class DiffusionEnv(gym.Env):
         # self.x0_t = self.state['x']
         self.t = self.ddim_seq[0]
         self.x0_t, self.at, self.et = denoise_single_step(self.state, self.model, self.t, self.cls_fn, self.classes)
-        self.x0_t = self.pinv_y_0.clone()
+
+        # if imagenet: use pinv_y_0, else if celeba: use original x0_t denoising from rand noise
+        if self.config.dataset == "ImageNet":
+            self.x0_t = self.pinv_y_0.clone()
 
         self.ddim_state = initialize_generalized_steps(
-            self.pinv_y_0.to("cuda"),
+            self.pinv_y_0.to(self.device),
             self.ddim_seq[0],
             self.runner.betas,
             self.H_funcs,
             self.y_0,
             self.sigma_0,
         )
-        ddim_x0_t = self.pinv_y_0.clone()
+        ddim_x0_t = self.self.x0_t.clone()
 
         # Precoputing DDRM uniform seq
         with torch.no_grad():
@@ -209,15 +215,16 @@ class DiffusionEnv(gym.Env):
                     "image": self.x0_t[0].cpu(),
                     "value": np.array([self.t])
                 }
-
-        torch.cuda.empty_cache()  # Clear GPU cache
+        with torch.cuda.device(self.gpu_idx):
+            torch.cuda.empty_cache()  # Clear GPU cache
             
         return observation, {}
 
 
     def step(self, action):
         truncate = self.current_step_num >= self.max_steps
-        torch.cuda.empty_cache()
+        with torch.cuda.device(self.gpu_idx):
+            torch.cuda.empty_cache()
         # RL
         with torch.no_grad():
             if self.adjust == False:
@@ -279,7 +286,8 @@ class DiffusionEnv(gym.Env):
             del self.x0_t, self.state
             gc.collect()
         self.current_step_num += 1
-        torch.cuda.empty_cache()
+        with torch.cuda.device(self.gpu_idx):
+            torch.cuda.empty_cache()
         return observation, reward, done, truncate, info
 
     # def _calculate_time_step_first(self, action):

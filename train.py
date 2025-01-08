@@ -24,7 +24,7 @@ from ddrm.runners.diffusion import Diffusion
 from arguments import parse_args_and_config
 from torch.cuda.amp import autocast, GradScaler
 # from new_A2C_model import MixedPrecisionA2C
-scaler = GradScaler()
+# scaler = GradScaler(device=)
 
 LOG = False
 warnings.filterwarnings("ignore")
@@ -39,6 +39,7 @@ def make_env(my_config):
     def _init():
         config = {
             "runner": my_config["runner"],
+            "gpu_idx": my_config["gpu_idx"],
             "target_steps": my_config["target_steps"],
             "max_steps": my_config["max_steps"],
             "agent1": my_config["agent1"],
@@ -279,6 +280,7 @@ def main():
 
     config = {
             "runner": my_config["runner"],
+            "gpu_idx": args.gpu_idx,
             "target_steps": my_config["target_steps"],
             "max_steps": my_config["max_steps"],
             "agent1": None,

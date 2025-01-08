@@ -17,7 +17,7 @@ def parse_args_and_config():
     )
     parser.add_argument("--seed", type=int, default=1234, help="Random seed")
     parser.add_argument(
-        "--exp", type=str, default="/tmp2/ICML2025", help="Path for saving running related data."
+        "--exp", type=str, default="/exp", help="Path for saving running related data."
     )
     parser.add_argument(
         "--doc",
@@ -68,6 +68,7 @@ def parse_args_and_config():
     parser.add_argument("--second_stage", action="store_true", help="Whether to run the second stage")
     parser.add_argument("--RL_algorithm", type=str, default="SAC", help="The RL algorithm to use")
     parser.add_argument("--eval_model_name", type=str, default="new_SR_2agent_A2C_10")
+    parser.add_argument("--gpu_idx", type=int, default=0)
 
     args = parser.parse_args()
     args.log_path = os.path.join(args.exp, "logs", args.doc)

@@ -8,6 +8,7 @@ from collections import Counter
 from func import MD_SAC
 from tqdm import tqdm
 import argparse
+import os
 
 from ddrm.runners.diffusion import Diffusion
 from arguments import parse_args_and_config
@@ -31,6 +32,7 @@ def make_env(my_config):
     def _init():
         config = {
             "runner": my_config["runner"],
+            "gpu_idx": args.gpu_idx,
             "target_steps": my_config["target_steps"],
             "max_steps": my_config["max_steps"],
             "agent1": my_config["agent1"],
@@ -66,7 +68,7 @@ def main():
     # Initialze DDNM
 
     args, config = parse_args_and_config()
-    with open("./output.txt", "a") as file:
+    with open(os.path.join(args.exp, "output.txt"), "a") as file:
         file.write("==========================\n")
         file.write(f'{args.eval_model_name}\n')
     runner = Diffusion(args, config)
