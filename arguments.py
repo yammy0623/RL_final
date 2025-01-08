@@ -17,7 +17,7 @@ def parse_args_and_config():
     )
     parser.add_argument("--seed", type=int, default=1234, help="Random seed")
     parser.add_argument(
-        "--exp", type=str, default="ddrm/exp", help="Path for saving running related data."
+        "--exp", type=str, default="/tmp2/ICML2025", help="Path for saving running related data."
     )
     parser.add_argument(
         "--doc",
