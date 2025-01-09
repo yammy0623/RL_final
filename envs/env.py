@@ -34,8 +34,7 @@ class DiffusionEnv(gym.Env):
         self.config = config
         self.deg = deg
         self.H_funcs = H_funcs
-        self.model = model
-        self.model.to(self.device)
+        self.model = model.to(self.device)
         
         self.idx_so_far = idx_so_far
         self.cls_fn = cls_fn
@@ -145,6 +144,7 @@ class DiffusionEnv(gym.Env):
                 }
         """
         self.state = initialize_generalized_steps(
+            self.device,
             self.pinv_y_0.to(self.device),
             self.last_T,
             self.runner.betas,
@@ -157,10 +157,11 @@ class DiffusionEnv(gym.Env):
         self.x0_t, self.at, self.et = denoise_single_step(self.state, self.model, self.t, self.cls_fn, self.classes)
 
         # if imagenet: use pinv_y_0, else if celeba: use original x0_t denoising from rand noise
-        if self.config.dataset == "ImageNet":
+        if self.config.data.dataset == "ImageNet":
             self.x0_t = self.pinv_y_0.clone()
 
         self.ddim_state = initialize_generalized_steps(
+            self.device,
             self.pinv_y_0.to(self.device),
             self.ddim_seq[0],
             self.runner.betas,
@@ -168,7 +169,7 @@ class DiffusionEnv(gym.Env):
             self.y_0,
             self.sigma_0,
         )
-        ddim_x0_t = self.self.x0_t.clone()
+        ddim_x0_t = self.x0_t.clone()
 
         # Precoputing DDRM uniform seq
         with torch.no_grad():

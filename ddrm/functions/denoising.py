@@ -113,7 +113,7 @@ def efficient_generalized_steps(x, seq, model, b, H_funcs, y_0, sigma_0, etaB, e
 
 
 # Self Defined
-def initialize_generalized_steps(x, last_T, b, H_funcs, y_0, sigma_0):
+def initialize_generalized_steps(device, x, last_T, b, H_funcs, y_0, sigma_0):
     with torch.no_grad():
         # print("device: ", x.device)
         # print("singulars device: ", H_funcs.singulars().device)
@@ -147,6 +147,7 @@ def initialize_generalized_steps(x, last_T, b, H_funcs, y_0, sigma_0):
             "U_t_y": U_t_y,
             "singulars": singulars,
             "large_singulars_index": large_singulars_index,
+            "device": device
         }
 
 
@@ -224,7 +225,7 @@ def initialize_generalized_steps(x, last_T, b, H_funcs, y_0, sigma_0):
 def denoise_single_step(state, model, t, cls_fn=None, classes=None):
     with torch.no_grad():
         x = state["x"]
-        xt = x.to('cuda')
+        xt = x.to(state["device"])
         t = torch.tensor([t]).to(x.device)
         b = state["b"]
         at = compute_alpha(b, t.long())
@@ -245,7 +246,7 @@ def denoise_single_step(state, model, t, cls_fn=None, classes=None):
 def denoise_guided_addnoise(state, next_t, at, et, x0_t, H_funcs, sigma_0, args):
     with torch.no_grad():
         x = state["x"]
-        xt = x.to('cuda')
+        xt = x.to(state["device"])
         b = state["b"]
         Sigma = state["Sigma"]
         Sig_inv_U_t_y = state["Sig_inv_U_t_y"]

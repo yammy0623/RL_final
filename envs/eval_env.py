@@ -47,8 +47,7 @@ class EvalDiffusionEnv(gym.Env):
         self.config = config
         self.deg = deg
         self.H_funcs = H_funcs
-        self.model = model
-        self.model.to(self.device)
+        self.model = model.to(self.device)
         
         self.idx_so_far = idx_so_far
         self.cls_fn = cls_fn
@@ -132,6 +131,7 @@ class EvalDiffusionEnv(gym.Env):
 
         # Initialization, extract degradation information from y_0 sigma 0, and H_func
         self.state = initialize_generalized_steps(
+                self.device,
                 self.pinv_y_0.to(self.device),
                 self.last_T,
                 self.runner.betas,
@@ -142,7 +142,8 @@ class EvalDiffusionEnv(gym.Env):
         # self.x0_t = self.state['x']
         self.t = self.ddim_seq[0]
         self.x0_t, self.at, self.et = denoise_single_step(self.state, self.model, self.t, self.cls_fn, self.classes)
-        self.x0_t = self.pinv_y_0.clone()
+        if self.config.data.dataset == "ImageNet":
+            self.x0_t = self.pinv_y_0.clone()
 
         observation = {
             "image": self.x0_t[0].cpu(),  

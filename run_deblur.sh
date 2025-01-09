@@ -17,7 +17,7 @@ ETAB=1
 SIGMA_0=0.0
 IMAGE_FOLDER="/tmp2/ICML2025/ddrm_2agent/celeba/celeba_hq_deblur_sigma_0.0"
 EXP="/tmp2/ICML2025/ddrm_2agent"
-GPU_IDX=1
+GPU_IDX=0
 
 # Training and evaluation for "deblur_uni"
 DEG="deblur_uni"

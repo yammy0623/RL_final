@@ -116,7 +116,7 @@ def parse_args_and_config():
             sys.exit(0)
 
     # add device
-    device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+    device = torch.device("cuda:"+str(args.gpu_idx)) if torch.cuda.is_available() else torch.device("cpu")
     logging.info("Using device: {}".format(device))
     new_config.device = device
 
