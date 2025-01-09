@@ -223,10 +223,11 @@ def initialize_generalized_steps(device, x, last_T, b, H_funcs, y_0, sigma_0):
 # split the x0_t and xt_next
 
 def denoise_single_step(state, model, t, cls_fn=None, classes=None):
+    device = state["device"]
     with torch.no_grad():
         x = state["x"]
-        xt = x.to(state["device"])
-        t = torch.tensor([t]).to(x.device)
+        xt = x.to(device)
+        t = torch.tensor([t], device=device)
         b = state["b"]
         at = compute_alpha(b, t.long())
         if cls_fn == None:
@@ -244,9 +245,10 @@ def denoise_single_step(state, model, t, cls_fn=None, classes=None):
     return x0_t.to("cpu"), at, et
 
 def denoise_guided_addnoise(state, next_t, at, et, x0_t, H_funcs, sigma_0, args):
+    device = state["device"]
     with torch.no_grad():
         x = state["x"]
-        xt = x.to(state["device"])
+        xt = x.to(device)
         b = state["b"]
         Sigma = state["Sigma"]
         Sig_inv_U_t_y = state["Sig_inv_U_t_y"]
