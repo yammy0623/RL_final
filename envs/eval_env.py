@@ -17,6 +17,7 @@ from ddrm.datasets import get_dataset, data_transform, inverse_data_transform
 from ddrm.functions.denoising import initialize_generalized_steps, denoise_single_step, denoise_guided_addnoise
 import pdb
 import copy
+import csv
 
 
 class EvalDiffusionEnv(gym.Env):
@@ -126,7 +127,8 @@ class EvalDiffusionEnv(gym.Env):
         # self.x0_t = self.state['x']
         self.t = self.ddim_seq[0]
         self.x0_t, self.at, self.et = denoise_single_step(self.state, self.model, self.t, self.cls_fn, self.classes)
-        self.x0_t = self.pinv_y_0.clone()
+        if self.config.data.dataset == "ImageNet":
+            self.x0_t = self.pinv_y_0.clone()
 
         observation = {
             "image": self.x0_t[0].cpu(),  
@@ -159,7 +161,14 @@ class EvalDiffusionEnv(gym.Env):
         if done:
             self.runner.save_img(self.x0_t, self.img_idx_so_far)
             self.img_idx_so_far += 1 if self.img_idx_so_far < len(self.runner.test_dataset) - 1 else 0
-            
+            output_file = os.path.join(self.runner.args.image_folder, 'results.csv')
+            file_exists = os.path.isfile(output_file)
+            with open(output_file, 'a', newline='', encoding='utf-8') as file:
+                writer = csv.writer(file)
+                if not file_exists:
+                    writer.writerow(['Image Index', 'Time Step Sequence', 'SSIM', 'PSNR'])
+                writer.writerow([self.img_idx_so_far, str(self.time_step_sequence), f"{ssim:.3f}", f"{psnr:.3f}"])
+
         info = {
             'ddim_t': self.uniform_steps[self.current_step_num],
             't': self.t,

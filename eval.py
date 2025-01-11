@@ -8,6 +8,7 @@ from collections import Counter
 from func import MD_SAC
 from tqdm import tqdm
 import argparse
+import os
 
 from ddrm.runners.diffusion import Diffusion
 from arguments import parse_args_and_config
@@ -63,7 +64,8 @@ def evaluation(env, model, eval_num=100):
 def main():
     # Initialze DDNM
     args, config = parse_args_and_config()
-    with open("./output.txt", "a") as file:
+    output_path = os.path.join(args.exp, "output.txt")
+    with open(output_path, "a") as file:
         file.write("==========================\n")
         file.write(f'{args.eval_model_name}\n')
     runner = Diffusion(args, config)
@@ -103,7 +105,9 @@ def main():
     print(f"Counts: (Total of {my_config['eval_num']} rollouts)")
     print("Total Average SSIM: %.3f" % avg_ssim)
     print("Total Average PSNR: %.3f" % avg_psnr)
-    with open("./output.txt", 'a') as file:
+
+    print("Output saves to ", output_path)
+    with open(output_path, 'a') as file:
         file.write(f"Counts: (Total of {my_config['eval_num']} rollouts)\n")
         file.write(f"time step sequence = {time_step_sequence}\n")
         file.write("Total Average SSIM: %.3f" % avg_ssim)
