@@ -16,16 +16,10 @@ import gymnasium as gym
 from gymnasium.envs.registration import register
 import torch.nn.functional as F
 from func import MD_SAC, PPO, A2C
-import math
-
 import os
 
 from ddrm.runners.diffusion import Diffusion
 from arguments import parse_args_and_config
-from torch.cuda.amp import autocast, GradScaler
-# from new_A2C_model import MixedPrecisionA2C
-scaler = GradScaler()
-
 
 LOG = False
 warnings.filterwarnings("ignore")
@@ -55,16 +49,47 @@ class CustomCNN(BaseFeaturesExtractor):
         This corresponds to the number of unit for the last layer.
     """
 
-    def __init__(self, observation_space: spaces.Box, features_dim: int = 256):
+    def __init__(self, observation_space: spaces.Box, features_dim: int = 256, use_scale_shift_norm: bool = True):
         super().__init__(observation_space, features_dim)
         # We assume CxHxW images (channels first)
         # Re-ordering will be done by pre-preprocessing or wrapper
         n_input_channels = observation_space['image'].shape[0]
+        self.use_scale_shift_norm = use_scale_shift_norm
         self.cnn = nn.Sequential(
-            nn.Conv2d(n_input_channels, 32, kernel_size=3, stride=1, padding=0),
+            nn.Conv2d(n_input_channels, 32, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(32),  # Normalize features
             nn.ReLU(),
-            nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=0),
+            nn.Dropout(0.5),
+            nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1),
+            nn.BatchNorm2d(64),
             nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Conv2d(128, 64, kernel_size=3, stride=2, padding=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Conv2d(64, 4, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.Flatten(),
+        )
+
+        # for layer in self.cnn:
+        #     if isinstance(layer, nn.Conv2d):
+        #         nn.init.kaiming_uniform_(layer.weight, nonlinearity='relu')
+        
+        self.cnn2 = nn.Sequential(
+            nn.Conv2d(n_input_channels, 16, kernel_size=3, stride=1, padding=0),
+            nn.ReLU(),
+            nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=0),
+            nn.ReLU(),
+        )
+
+        self.mix_fc = nn.Sequential(
+            nn.Conv2d(64, 32, kernel_size=1, stride=1, padding=0),
             nn.Flatten(),
         )
 
@@ -75,13 +100,32 @@ class CustomCNN(BaseFeaturesExtractor):
             ).shape[1]
 
         self.fc = nn.Linear(1, 32)
-        self.linear = nn.Sequential(nn.Linear(n_flatten + 32, features_dim), nn.ReLU())
+        self.embedding_output = nn.Linear(32, features_dim * 2)
+        self.out_norm = nn.Linear(n_flatten, features_dim)  # Normalizing layer
+        self.out_rest = nn.Sequential(
+            nn.Linear(features_dim, features_dim),  # Further processing layer
+            nn.ReLU()
+        )
 
     def forward(self, observations: th.Tensor) -> th.Tensor:
         img_features = self.cnn(observations['image'].float())
+        if 'image2' in observations:
+            img_features2 = self.cnn2(observations['image2'].float())
+            img_features = th.cat((img_features, img_features2), dim=1)
+            img_features = self.mix_fc(img_features)
+        # else:
+            # img_features = img_features.flatten()
+
         value_features = F.relu(self.fc(observations['value'].float()))
-        combined = th.cat([img_features, value_features], dim=1)
-        return self.linear(combined)
+        if self.use_scale_shift_norm:
+            emb_out = self.embedding_output(value_features)
+            scale, shift = th.chunk(emb_out, 2, dim=1)
+            h = self.out_norm(img_features) * (1 + scale) + shift
+            h = self.out_rest(h)
+        else:
+            h = self.out_rest(self.out_norm(img_features + value_features))
+
+        return h
 
 def eval(env, model, eval_episode_num, target_steps):
         """Evaluate the model and return avg_score and avg_highest"""
@@ -129,7 +173,6 @@ def train(eval_env, rl_model, config):
     """Train agent using SB3 algorithm and my_config"""
     current_best_ssim = 0
     current_best_psnr = 0
-
     for epoch in range(config["epoch_num"]):
 
         # Uncomment to enable wandb logging
@@ -207,21 +250,7 @@ def main():
     # TODO: change to read yaml
     args, config = parse_args_and_config()
     runner = Diffusion(args, config)
-
-    # my_config = {
-    #     "algorithm": MD_SAC,
-    #     "buffer_size": 10000, # for SAC only, default is 1e6.
-    #     "num_train_envs": 16,
-    #     "policy_network": "MultiInputPolicy",
-    #     "epoch_num": 500,
-    #     "timesteps_per_epoch": 100,
-    #     "eval_episode_num": 16,
-    #     "learning_rate": 1e-4,
-    #     "policy_kwargs": policy_kwargs,
-    #     "runner": runner,
-    #     "target_steps": args.target_steps,
-    #     "max_steps": 100,
-    # }
+    tensorboard_log_dir = "./tensorboard_logs"
 
     my_config = {
         "run_id": "A2C_v1",
@@ -276,7 +305,7 @@ def main():
         my_config["policy_network"],
         train_env,
         verbose=2,
-        tensorboard_log=my_config["run_id"],
+        tensorboard_log= os.path.join(tensorboard_log_dir, my_config["run_id"]),
         learning_rate=my_config["learning_rate"],
         policy_kwargs=my_config["policy_kwargs"],
         # device="cpu"

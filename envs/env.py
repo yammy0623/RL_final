@@ -144,7 +144,8 @@ class DiffusionEnv(gym.Env):
         )
         self.t = self.ddim_seq[0]
         self.x0_t, self.at, self.et = denoise_single_step(self.state, self.model, self.t, self.cls_fn, self.classes)
-        self.x0_t = self.pinv_y_0.clone()
+        if self.config.data.dataset == "ImageNet":
+            self.x0_t = self.pinv_y_0.clone()
 
         self.ddim_state = initialize_generalized_steps(
             self.pinv_y_0.to("cuda"),
@@ -154,7 +155,7 @@ class DiffusionEnv(gym.Env):
             self.y_0,
             self.sigma_0,
         )
-        ddim_x0_t = self.pinv_y_0.clone()
+        ddim_x0_t = self.x0_t.clone()
 
         # Precomputing DDRM uniform seq
         with torch.no_grad():
