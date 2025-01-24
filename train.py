@@ -35,15 +35,17 @@ register(
 )
 
 
-def make_env(my_config):
+def make_env(my_config, i):
     def _init():
         config = {
             "runner": my_config["runner"],
             "gpu_idx": my_config["gpu_idx"],
+            "env_id": i,
             "target_steps": my_config["target_steps"],
             "max_steps": my_config["max_steps"],
             "agent1": my_config["agent1"],
-            "args": my_config["args"],
+            "args": my_config["args"]
+            
         }
         return gym.make("final-v0", **config)
 
@@ -57,24 +59,54 @@ class CustomCNN(BaseFeaturesExtractor):
         This corresponds to the number of unit for the last layer.
     """
 
-    def __init__(self, observation_space: spaces.Box, features_dim: int = 128, use_scale_shift_norm: bool = True):
+    def __init__(self, observation_space: spaces.Box, features_dim: int = 256, use_scale_shift_norm: bool = True):
         super().__init__(observation_space, features_dim)
-
-        n_input_channels = observation_space["image"].shape[0]
-        n_input_channels = 3
+        # We assume CxHxW images (channels first)
+        # Re-ordering will be done by pre-preprocessing or wrapper
+        n_input_channels = observation_space['image'].shape[0]
         self.use_scale_shift_norm = use_scale_shift_norm
         self.cnn = nn.Sequential(
-            nn.Conv2d(n_input_channels, 32, kernel_size=3, stride=1, padding=0),
+            nn.Conv2d(n_input_channels, 32, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(32),  # Normalize features
             nn.ReLU(),
-            nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=0),
+            nn.Dropout(0.5),
+            nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1),
+            nn.BatchNorm2d(64),
             nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Conv2d(128, 64, kernel_size=3, stride=2, padding=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Conv2d(64, 4, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.Flatten(),
+        )
+
+        # for layer in self.cnn:
+        #     if isinstance(layer, nn.Conv2d):
+        #         nn.init.kaiming_uniform_(layer.weight, nonlinearity='relu')
+        
+        self.cnn2 = nn.Sequential(
+            nn.Conv2d(n_input_channels, 16, kernel_size=3, stride=1, padding=0),
+            nn.ReLU(),
+            nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=0),
+            nn.ReLU(),
+        )
+
+        self.mix_fc = nn.Sequential(
+            nn.Conv2d(64, 32, kernel_size=1, stride=1, padding=0),
             nn.Flatten(),
         )
 
         # Compute shape by doing one forward pass
         with th.no_grad():
             n_flatten = self.cnn(
-                th.as_tensor(observation_space["image"].sample()[None]).float()
+                th.as_tensor(observation_space['image'].sample()[None]).float()
             ).shape[1]
 
         self.fc = nn.Linear(1, 32)
@@ -87,6 +119,13 @@ class CustomCNN(BaseFeaturesExtractor):
 
     def forward(self, observations: th.Tensor) -> th.Tensor:
         img_features = self.cnn(observations['image'].float())
+        if 'image2' in observations:
+            img_features2 = self.cnn2(observations['image2'].float())
+            img_features = th.cat((img_features, img_features2), dim=1)
+            img_features = self.mix_fc(img_features)
+        # else:
+            # img_features = img_features.flatten()
+
         value_features = F.relu(self.fc(observations['value'].float()))
         if self.use_scale_shift_norm:
             emb_out = self.embedding_output(value_features)
@@ -95,6 +134,7 @@ class CustomCNN(BaseFeaturesExtractor):
             h = self.out_rest(h)
         else:
             h = self.out_rest(self.out_norm(img_features + value_features))
+
         return h
 
 def eval(env, rl_model, eval_episode_num, args):
@@ -261,7 +301,7 @@ def main():
         "policy_kwargs": policy_kwargs,
 
         # "DM_model": "model/ddpm_ema_cifar10",
-        "target_steps": args.target_steps-1,
+        "target_steps": args.target_steps,
         "max_steps": 100,
         "args": args,
 
@@ -286,16 +326,27 @@ def main():
             "target_steps": my_config["target_steps"],
             "max_steps": my_config["max_steps"],
             "agent1": None,
+            "args": my_config["args"]
         }
     # Create training environment
     num_train_envs = my_config["num_train_envs"]
-    train_env = DummyVecEnv([make_env(config) for _ in range(num_train_envs)])
+    train_env = DummyVecEnv([make_env(config, i) for i in range(num_train_envs)])
+
 
     # Create evaluation environment
     # eval_env = DummyVecEnv([make_env(my_config)])
     # TODO: Why using SB3 API?
     # Create evaluation environment (via SB3 API) 
-    eval_env = gym.make('final-v0', **config)
+    eval_config = {
+            "runner": my_config["runner"],
+            "gpu_idx": args.gpu_idx,
+            "env_id": 0,
+            "target_steps": my_config["target_steps"],
+            "max_steps": my_config["max_steps"],
+            "agent1": None,
+            "args": my_config["args"]
+        }
+    eval_env = gym.make('final-v0', **eval_config)
 
     # Create model from loaded config and train
     # Note: Set verbose to 0 if you don't want info messages
@@ -319,13 +370,13 @@ def main():
         rl_model = my_config["algorithm"].load(f"{my_config['save_path']}/best")
         config['agent1'] = rl_model
 
-        train_env = DummyVecEnv([make_env(config) for _ in range(num_train_envs)])
-        eval_env = gym.make('final-v0', **config)
+        train_env = DummyVecEnv([make_env(config, i) for i in range(num_train_envs)])
+        eval_env = gym.make('final-v0', **eval_config)
         rl_model_2 = my_config["algorithm"](
             my_config["policy_network"], 
             train_env, 
             verbose=2,
-            tensorboard_log=my_config["run_id"],
+            tensorboard_log=os.path.join("tensorboard_log", my_config["run_id"]),
             learning_rate=my_config["learning_rate"],
             policy_kwargs=my_config["policy_kwargs"],
         )
