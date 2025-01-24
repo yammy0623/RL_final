@@ -43,6 +43,7 @@ def make_env(my_config):
             "target_steps": my_config["target_steps"],
             "max_steps": my_config["max_steps"],
             "agent1": my_config["agent1"],
+            "args": my_config["args"],
         }
         return gym.make("final-v0", **config)
 
@@ -262,8 +263,9 @@ def main():
         # "DM_model": "model/ddpm_ema_cifar10",
         "target_steps": args.target_steps-1,
         "max_steps": 100,
+        "args": args,
 
-        "num_train_envs": 16,
+        "num_train_envs": 1,
         "runner": runner,
     }
 
