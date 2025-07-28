@@ -64,12 +64,27 @@ def parse_args_and_config():
     parser.add_argument("--etaB", type=float, default=1, help="Eta_b (before)")
     parser.add_argument("--subset_start", type=int, default=-1)
     parser.add_argument("--subset_end", type=int, default=-1)
-    parser.add_argument("--input_root", type=str, default="/disk_195a/qiannnhui", help="The root folder of input images")
-    parser.add_argument("--second_stage", action="store_true", help="Whether to run the second stage")
-    parser.add_argument("--RL_algorithm", type=str, default="SAC", help="The RL algorithm to use")
+    parser.add_argument(
+        "--input_root",
+        type=str,
+        default="/disk_195a/qiannnhui",
+        help="The root folder of input images",
+    )
+    parser.add_argument(
+        "--second_stage", action="store_true", help="Whether to run the second stage"
+    )
+    parser.add_argument(
+        "--RL_algorithm", type=str, default="SAC", help="The RL algorithm to use"
+    )
     parser.add_argument("--eval_model_name", type=str, default="new_SR_2agent_A2C_10")
     parser.add_argument("--gpu_idx", type=int, default=0)
-
+    parser.add_argument(
+        "--start_with",
+        type=str,
+        default="y_addnoise",
+        help="y_addnoise | rand | rand_addnoise",
+    )
+    parser.add_argument("--baseline", action="store_true")
     args = parser.parse_args()
     args.log_path = os.path.join(args.exp, "logs", args.doc)
 
@@ -116,7 +131,11 @@ def parse_args_and_config():
             sys.exit(0)
 
     # add device
-    device = torch.device("cuda:"+str(args.gpu_idx)) if torch.cuda.is_available() else torch.device("cpu")
+    device = (
+        torch.device("cuda:" + str(args.gpu_idx))
+        if torch.cuda.is_available()
+        else torch.device("cpu")
+    )
     logging.info("Using device: {}".format(device))
     new_config.device = device
 

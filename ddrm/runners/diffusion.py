@@ -70,10 +70,11 @@ class Diffusion(object):
                 else torch.device("cpu")
             )
         self.device = device
-        self.model = None
+        # self.model = None
 
         self.model_var_type = config.model.var_type
 
+        
         self.dataset, self.train_dataset, self.test_dataset = get_dataset(args, config)
         if args.subset_start >= 0 and args.subset_end > 0:
             assert args.subset_end > args.subset_start
@@ -84,6 +85,8 @@ class Diffusion(object):
             args.subset_start = 0
             args.subset_end = len(self.test_dataset)
             
+        print(f"Train_Dataset has size {len(self.train_dataset)}")
+        print(f"Val_Dataset has size {len(self.test_dataset)}")
 
         betas = get_beta_schedule(
             beta_schedule=config.diffusion.beta_schedule,
@@ -169,7 +172,11 @@ class Diffusion(object):
                         ckpt,
                     )
 
-            # Open AI 才有class_cond
+            model.load_state_dict(torch.load(ckpt, map_location=self.device))
+            model.to(self.device)
+            model.eval()
+            model = torch.nn.DataParallel(model)
+
             if self.config.model.class_cond:
                 ckpt = os.path.join(
                     self.args.exp,
@@ -186,9 +193,7 @@ class Diffusion(object):
                 classifier = create_classifier(
                     **args_to_dict(self.config.classifier, classifier_defaults().keys())
                 )
-                classifier.load_state_dict(
-                    torch.load(ckpt, map_location=self.device, weights_only=True)
-                )
+                classifier.load_state_dict(torch.load(ckpt, map_location=self.device))
                 classifier.to(self.device)
                 if self.config.classifier.classifier_use_fp16:
                     classifier.convert_to_fp16()
@@ -210,14 +215,6 @@ class Diffusion(object):
 
                 cls_fn = cond_fn
 
-                model.load_state_dict(
-                    torch.load(ckpt, map_location=self.device, weights_only=True)
-                )
-                model.to(self.device)
-                model.eval()
-                model = torch.nn.DataParallel(model)
-
-        self.model = model
         return model, cls_fn
 
     # 移到全域，迴圈才可以被包起來(解決無法被pickle的問題)
@@ -232,27 +229,25 @@ class Diffusion(object):
         args, config = self.args, self.config
 
         # get original images and corrupted y_0
-        _, self.dataset, self.test_dataset = get_dataset(args, config)
+        # _, self.dataset, self.test_dataset = get_dataset(args, config)
 
         device_count = torch.cuda.device_count()
 
-        if args.subset_start >= 0 and args.subset_end > 0:
-            assert args.subset_end > args.subset_start
-            self.test_dataset = torch.utils.data.Subset(
-                self.test_dataset, range(args.subset_start, args.subset_end)
-            )
-        else:
-            args.subset_start = 0
-            args.subset_end = len(self.test_dataset)
+        # if args.subset_start >= 0 and args.subset_end > 0:
+        #     assert args.subset_end > args.subset_start
+        #     self.test_dataset = torch.utils.data.Subset(
+        #         self.test_dataset, range(args.subset_start, args.subset_end)
+        #     )
+        # else:
+        #     args.subset_start = 0
+        #     args.subset_end = len(self.test_dataset)
 
-        print(f"Train_Dataset has size {len(self.dataset)}")
-        print(f"Val_Dataset has size {len(self.test_dataset)}")
         self.val_datalen = len(self.test_dataset)
 
         g = torch.Generator()
         g.manual_seed(args.seed)
         train_loader = data.DataLoader(
-            self.dataset,
+            self.train_dataset,
             batch_size=config.sampling.batch_size,
             shuffle=True,
             num_workers=config.data.num_workers,
@@ -419,19 +414,14 @@ class Diffusion(object):
         else:
             print("ERROR: degradation type not supported")
             quit()
-        # pdb.set_trace()
+
         args.sigma_0 = 2 * args.sigma_0  # to account for scaling to [-1,1]
         sigma_0 = args.sigma_0
-        model = self.model
-        # pdb.set_trace()
-        print(f"Start from {args.subset_start}")
-        idx_init = args.subset_start
-        idx_so_far = args.subset_start
-        avg_psnr = 0.0
-        # pdb.set_trace()
-        # pbar = tqdm.tqdm(val_loader)
 
-        return train_loader, val_loader, sigma_0, config, deg, H_funcs, model, idx_so_far, cls_fn
+
+        print(f"Start from {args.subset_start}")
+
+        return train_loader, val_loader, sigma_0, config, deg, H_funcs, cls_fn
 
     # 如果沒有cls，就不會有class
     def sample_init(
@@ -441,10 +431,6 @@ class Diffusion(object):
         config,
         deg,
         H_funcs,
-        model,
-        idx_so_far,
-        cls_fn,
-        classes=None,
     ):
         x_orig = x_orig.to(self.device)
         x_orig = data_transform(self.config, x_orig)
@@ -500,7 +486,7 @@ class Diffusion(object):
             device=self.device,
         )
         H_inv_y = H_funcs.H_pinv(y_0.reshape(y_0.size(0), -1)).reshape(x.size())
-        return x, y_0, pinv_y_0, x_orig, H_inv_y
+        return x, y_0, pinv_y_0, H_inv_y, x_orig
 
     def evaluation(self, x, x_orig, y_0, idx_init, pbar, idx_so_far):
         config = self.config

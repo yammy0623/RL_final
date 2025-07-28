@@ -152,3 +152,61 @@ class ImageDataset(data.Dataset):
             img = self.transform(img)
 
         return img, cls
+    
+
+class ImageDatasetTest(data.Dataset):
+
+    def __init__(self,
+                 root_dir,
+                 meta_file,
+                 transform=None,
+                 image_size=128,
+                 normalize=True):
+        self.root_dir = root_dir
+        if transform is not None:
+            self.transform = transform
+        else:
+            norm_mean = [0.5, 0.5, 0.5]
+            norm_std = [0.5, 0.5, 0.5]
+            if normalize:
+                self.transform = transforms.Compose([
+                    CenterCropLongEdge(),
+                    transforms.Resize(image_size),
+                    transforms.ToTensor(),
+                    transforms.Normalize(norm_mean, norm_std)
+                ])
+            else:
+                self.transform = transforms.Compose([
+                    CenterCropLongEdge(),
+                    transforms.Resize(image_size),
+                    transforms.ToTensor()
+                ])
+        with open(meta_file) as f:
+            lines = f.readlines()
+        print("building dataset from %s" % meta_file)
+        self.num = len(lines)
+        self.metas = []
+        self.classifier = None
+        # suffix =  ".jpeg"
+        suffix =  ""
+        for line in lines:
+            line_split = line.rstrip().split()
+            if len(line_split) == 2:
+                self.metas.append((line_split[0] + suffix, int(line_split[1])))
+            else:
+                self.metas.append((line_split[0] + suffix, -1))
+        print("read meta done")
+
+    def __len__(self):
+        return self.num
+
+    def __getitem__(self, idx):
+        filename = self.root_dir + '/imagenet/' + self.metas[idx][0]
+        cls = self.metas[idx][1]
+        img = default_loader(filename)
+
+        # transform
+        if self.transform is not None:
+            img = self.transform(img)
+
+        return img, cls #, self.metas[idx][0]

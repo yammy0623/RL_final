@@ -32,7 +32,7 @@ def make_env(my_config):
     def _init():
         config = {
             "runner": my_config["runner"],
-            "gpu_idx": args.gpu_idx,
+            "gpu_idx": my_config["gpu_idx"],
             "target_steps": my_config["target_steps"],
             "max_steps": my_config["max_steps"],
             "agent1": my_config["agent1"],
@@ -66,11 +66,12 @@ def evaluation(env, model, eval_num=100):
 
 def main():
     # Initialze DDNM
-
     args, config = parse_args_and_config()
-    with open(os.path.join(args.exp, "output.txt"), "a") as file:
+    output_path = os.path.join(args.exp, "output.txt")
+    with open(output_path, "a") as file:
         file.write("==========================\n")
         file.write(f'{args.eval_model_name}\n')
+
     runner = Diffusion(args, config)
     runner.sample()
 
@@ -88,7 +89,7 @@ def main():
         "runner": runner,
         "eval_num": len(runner.test_dataset),
     }
-    my_config['save_path'] = f'model/{args.eval_model_name}/best'
+    my_config['save_path'] = f'model/{args.doc}/{args.eval_model_name}/best'
 
     ### Load model with SB3
     agent1 = my_config['algorithm'].load(my_config['save_path'])
@@ -100,6 +101,8 @@ def main():
             "target_steps": my_config["target_steps"],
             "max_steps": my_config["max_steps"],
             "agent1": agent1,
+            "gpu_idx": args.gpu_idx
+
         }
 
     env = DummyVecEnv([make_env(config) for _ in range(my_config['num_eval_envs'])])
@@ -109,7 +112,7 @@ def main():
     print(f"Counts: (Total of {my_config['eval_num']} rollouts)")
     print("Total Average PSNR: %.2f" % avg_psnr)
     print("Total Average SSIM: %.3f" % avg_ssim)
-    with open("./output.txt", 'a') as file:
+    with open(output_path, 'a') as file:
         file.write(f"Counts: (Total of {my_config['eval_num']} rollouts)\n")
         file.write(f"time step sequence = {time_step_sequence}\n")
         file.write("Total Average SSIM: %.3f" % avg_ssim)

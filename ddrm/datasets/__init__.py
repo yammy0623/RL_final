@@ -170,12 +170,22 @@ def get_dataset(args, config):
         # only use validation dataset here
         
         if config.data.subset_1k:
-            from datasets.imagenet_subset import ImageDataset
-            dataset = ImageDataset(os.path.join(args.exp, 'datasets', 'imagenet', 'imagenet'),
-                     os.path.join(args.exp, 'imagenet_val_1k.txt'),
+            from ddrm.datasets.imagenet_subset import ImageDataset, ImageDatasetTest
+            dataset = None
+            train_dataset = ImageDataset(os.path.join(args.input_root, 'ImageNet', 'train'),
                      image_size=config.data.image_size,
                      normalize=False)
-            test_dataset = dataset
+            
+            # test_dataset = ImageDataset(os.path.join(args.input_root, 'ImageNet', 'val'),
+            #          image_size=config.data.image_size,
+            #          normalize=False)
+
+            test_dataset = ImageDatasetTest(os.path.join(args.input_root, 'ImageNet', 'imagenet'),
+                     os.path.join(args.input_root, 'imagenet_val_1k.txt'),
+                     image_size=config.data.image_size,
+                     normalize=False)
+            
+            # test_dataset = dataset
         elif config.data.out_of_dist:
             dataset = torchvision.datasets.ImageFolder(
                 os.path.join(args.exp, 'datasets', 'ood'),

@@ -138,7 +138,8 @@ def initialize_generalized_steps(device, x, last_T, b, H_funcs, y_0, sigma_0):
         init_y = init_y + remaining_s * x
         init_y = init_y / largest_sigmas
 
-        x = H_funcs.V(init_y.view(x.size(0), -1)).view(*x.size())
+        # x = H_funcs.V(init_y.view(x.size(0), -1)).view(*x.size())
+        # save_img(x, "x_2")
         return {
             "x": x,
             "b": b,
@@ -223,32 +224,38 @@ def initialize_generalized_steps(device, x, last_T, b, H_funcs, y_0, sigma_0):
 # split the x0_t and xt_next
 
 def denoise_single_step(state, model, t, cls_fn=None, classes=None):
+
     device = state["device"]
+    # model = model.to(device)
     with torch.no_grad():
-        x = state["x"]
-        xt = x.to(device)
+        xt = state["x"].to(device)
         t = torch.tensor([t], device=device)
         b = state["b"]
         at = compute_alpha(b, t.long())
         if cls_fn == None:
             et = model(xt, t)
+            # print("et", et)
+            # print("t", t)
+            # print("xt", xt)
         else:
             et = model(xt, t, classes)
             et = et[:, :3]
-            et = et - (1 - at).sqrt()[0,0,0,0] * cls_fn(x,t,classes)
+            et = et - (1 - at).sqrt()[0,0,0,0] * cls_fn(xt,t,classes)
         
         if et.size(1) == 6:
             et = et[:, :3]
         
         x0_t = (xt - et * (1 - at).sqrt()) / at.sqrt()
+        # save_img(x0_t,  "x0_t_2")
+        # print(f"et: {et}, at: {at}")
 
-    return x0_t.to("cpu"), at, et
+    return x0_t.to("cpu"), et
 
-def denoise_guided_addnoise(state, next_t, at, et, x0_t, H_funcs, sigma_0, args):
+def denoise_guided_addnoise(state, next_t, et, x0_t, H_funcs, sigma_0, args):
     device = state["device"]
     with torch.no_grad():
-        x = state["x"]
-        xt = x.to(device)
+        # x = state["x"]
+        xt = state["x"].to(device)
         b = state["b"]
         Sigma = state["Sigma"]
         Sig_inv_U_t_y = state["Sig_inv_U_t_y"]
@@ -258,13 +265,13 @@ def denoise_guided_addnoise(state, next_t, at, et, x0_t, H_funcs, sigma_0, args)
         etaB = args.etaB
         etaC = args.eta
         #variational inference conditioned on y
-        next_t = torch.tensor([next_t]).to(x.device)
+        next_t = torch.tensor([next_t]).to(device)
         at_next = compute_alpha(b, next_t.long())
-        sigma = (1 - at).sqrt()[0, 0, 0, 0] / at.sqrt()[0, 0, 0, 0]
+        # sigma = (1 - at).sqrt()[0, 0, 0, 0] / at.sqrt()[0, 0, 0, 0]
         sigma_next = (1 - at_next).sqrt()[0, 0, 0, 0] / at_next.sqrt()[0, 0, 0, 0]
-        xt_mod = xt / at.sqrt()[0, 0, 0, 0]
-        V_t_x = H_funcs.Vt(xt_mod)
-        SVt_x = (V_t_x * Sigma)[:, :U_t_y.shape[1]]
+        # xt_mod = xt / at.sqrt()[0, 0, 0, 0]
+        # V_t_x = H_funcs.Vt(xt_mod)
+        # SVt_x = (V_t_x * Sigma)[:, :U_t_y.shape[1]]
         V_t_x0 = H_funcs.Vt(x0_t).to(xt.device)
         SVt_x0 = (V_t_x0 * Sigma)[:, :U_t_y.shape[1]]
 
@@ -295,6 +302,21 @@ def denoise_guided_addnoise(state, next_t, at, et, x0_t, H_funcs, sigma_0, args)
 
         #aggregate all 3 cases and give next prediction
         xt_mod_next = H_funcs.V(Vt_xt_mod_next)
-        xt_next = (at_next.sqrt()[0, 0, 0, 0] * xt_mod_next).view(*x.shape)
-
+        xt_next = (at_next.sqrt()[0, 0, 0, 0] * xt_mod_next).view(*xt.shape)
+        
+        # save_img(xt_next, "xt_next_2")
     return xt_next.to("cpu")
+
+
+
+
+
+
+
+
+# import torchvision.utils as tvu
+def save_img(x, name):
+    # x = inverse_data_transform(config, x)
+    tvu.save_image(
+        x, os.path.join("image", f"{name}_{0}.png")
+    )

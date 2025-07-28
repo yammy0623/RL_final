@@ -7,3 +7,5 @@ run/
 exp/
 img/
 .vscode/
+tensor_board/
+tensorboard_log/**
